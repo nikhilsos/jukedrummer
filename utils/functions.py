@@ -10,7 +10,7 @@ def get_vqvae(vq_idx, data_type, ckpt_dir, device):
     ckpt_name = f'vq{vq_idx}_{data_type}.pkl'
     ckpt = torch.load(
         os.path.join(ckpt_dir, ckpt_name), 
-        map_location=lambda storage, loc: storage
+        map_location=lambda storage, loc: storage, weights_only=False
     )
     hps = Hyperparams(ckpt['hps'])
     # hps['mel_dir'] = '/home/lego/NAS189/home/codify/data/drums/feature/mel/hop'
@@ -47,7 +47,7 @@ def mel2token(data, vqvae, mean, std, device):
 
 def wav2mel(data, audio2mel):
     if isinstance(data, str):
-        y, _ = librosa.load(data, 44100)
+        y, _ = librosa.load(data, sr = 44100)
     elif isinstance(data, np.ndarray):
         y = data
     peak = np.abs(y).max()

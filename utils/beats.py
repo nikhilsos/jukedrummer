@@ -37,6 +37,8 @@ def getRNNembedding(rnn, audio_fea, device, head = 'mix'):
         blstm_out, cellstates = rnn.drumBeat.lstm(in_fea)
         out = rnn.drumBeat.fc1(blstm_out)
     out_feature = blstm_out.detach().cpu().numpy().squeeze()
+
+    # print(head,out_feature.shape, out.shape) #[1,2378,3], [2378,50]
     return out, out_feature
 
 
@@ -79,6 +81,8 @@ class BeatInfoExtractor():
             beat_info = out_fea
         else:
             beat_info = None
+
+        print(f'beat info shape: {beat_info.shape}', 'beat info type:', self.binfo_type)
         return beat_info
 
 
@@ -95,7 +99,7 @@ def get_proc(input_csv_path, device):
     model_setting = model_info['model_setting']
     rnn = DA2(**eval(model_setting))
     model_path = os.path.join('ckpt/' , 'RNNBeatProc.pth')
-    state = torch.load(model_path, map_location=device)
+    state = torch.load(model_path, map_location=device, weights_only=True)
     rnn.load_state_dict(state)
     return hmm_proc, rnn
 

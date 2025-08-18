@@ -28,7 +28,7 @@ class Audio2Mel(nn.Module):
         super().__init__()
         window = torch.hann_window(hps.win_length).float()
         mel_basis = librosa_mel_fn(
-            hps.sampling_rate, hps.n_fft, hps.n_mel_channels, hps.mel_fmin, hps.mel_fmax
+            sr = hps.sampling_rate, n_fft = hps.n_fft, n_mels= hps.n_mel_channels, fmin=hps.mel_fmin, fmax=hps.mel_fmax
         )
         mel_basis = torch.from_numpy(mel_basis).float()
         self.register_buffer("mel_basis", mel_basis)
@@ -69,6 +69,7 @@ def process_audios(fn, mel_dir, audio_dir, data_type, sample_rate, extract_func)
         if np.any(np.isnan(mel)) or np.sum(np.mean(mel, axis=0, keepdims=False) < -8) > mel.shape[1] // 2:
             return id, 0
         np.save(os.path.join(mel_dir, fn.replace('wav', 'npy')), mel, allow_pickle=False)
+        print('saved as', os.path.join(mel_dir, fn.replace('wav', 'npy')))
     except:
         print('error occur')
         return id, 0
@@ -89,6 +90,7 @@ def inference(fns, audio_dir, mel_dir, process_num=4):
                 sample_rate=sr,
                 extract_func=extract_func,
                 ), fns)),1):
+        print(f'processing {fn} target mode')
         if length == 0:
             print(f'Some error occurs, drum track of {fn} is not genereted into Mel spectrogram')
     
@@ -100,6 +102,7 @@ def inference(fns, audio_dir, mel_dir, process_num=4):
                 sample_rate=sr,
                 extract_func=extract_func,
                 ), fns)),1):
+        print(f'processing {fn} others mode')
         if length == 0:
             print(f'Some error occurs, drumless track of {fn} is not genereted into Mel spectrogram')
 

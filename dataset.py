@@ -10,33 +10,47 @@ from sklearn.preprocessing import StandardScaler
 from tqdm import tqdm
 
 def compute_mean_std(mel_dir, pkl=None):
-    
     # Compute means and standards of Mel spectrograms for every Mel-filter bank before normalization
-    # Input:
-    #   mel_dir: an absolute path of Mel data directory 
-    #   pkl: Or, filenames of .pkl file is also accepted
-
-    if pkl is not None:
-        in_fns = pkl[0]
-    else:
-        in_fns = os.listdir(mel_dir)
-        in_fns = [fn for fn in in_fns if '.npy' in fn]
+    # print('mel_dir:', mel_dir)
+    # print(f"Files in directory: {os.listdir(mel_dir)}")
+    
+    in_fns = os.listdir(mel_dir)
+    in_fns = [fn for fn in in_fns if '.npy' in fn]
 
     scaler = StandardScaler()
-    pbar = tqdm(in_fns, dynamic_ncols=True,)
+    # pbar = tqdm(in_fns, dynamic_ncols=True)
     non_nan = []
-    print('computing mean and std ...')
-    for fn in pbar:
+    valid_data_found = False  # Flag to check if valid data is found
+    print('Computing mean and std ...')
+    
+    for fn in in_fns:
+        # print('here now')
+        if not fn.endswith('.npy'):
+            fn += '.npy'
         in_fp = os.path.join(mel_dir, fn)
-        data = np.load(in_fp).T 
-
-        if np.isnan(data).any():
-            print(fn)
+        # print(f"Trying to load: {in_fp}")
+        if not os.path.exists(in_fp):
+            print(f"File does not exist: {in_fp}")
             continue
-        non_nan += [fn]
-        scaler.partial_fit(data)
-        if True in np.isnan(scaler.scale_):
-            break
+        try:
+            
+            data = np.load(in_fp).T
+            if np.isnan(data).any():
+                print(f"Skipping {fn} — contains NaNs")
+                continue
+            if data.size == 0:
+                print(f"Skipping {fn} — empty")
+                continue
+            non_nan.append(fn)
+            scaler.partial_fit(data)
+            valid_data_found = True
+            print(f"Loaded {fn} successfully")
+        except Exception as e:
+            print(f"Error loading {fn}: {e}")
+
+
+    if not valid_data_found:
+        raise ValueError("No valid data found to compute mean and std.")
 
     mean = scaler.mean_
     std = scaler.scale_

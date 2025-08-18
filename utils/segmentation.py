@@ -16,8 +16,8 @@ def pad_to(audio, length):
     return np.pad(audio, (0,length - len(audio)), 'constant', constant_values=0)
 
 def get_downbeats(fn, beat_proc, track_proc, root):
-    drums, sr = librosa.load(os.path.join(root, 'audio', 'target', fn), 44100)
-    others, sr = librosa.load(os.path.join(root, 'audio', 'others', fn), 44100)
+    drums, sr = librosa.load(os.path.join(root, 'target', fn), sr = 44100)
+    others, sr = librosa.load(os.path.join(root, 'others', fn), sr = 44100)
     drums = pad_to(drums, max(len(drums), len(others)))
     others = pad_to(others, max(len(drums), len(others)))
     act = beat_proc(others+drums)
@@ -25,8 +25,8 @@ def get_downbeats(fn, beat_proc, track_proc, root):
     return downbeats
 
 def segmentation(fn, downbeats, length, audio_dir):
-    others, sr = librosa.load(os.path.join(audio_dir,'audio', 'others', fn), sr=44100)
-    drums, sr = librosa.load(os.path.join(audio_dir,'audio', 'target', fn), sr=44100)
+    others, sr = librosa.load(os.path.join(audio_dir, 'others', fn), sr=44100)
+    drums, sr = librosa.load(os.path.join(audio_dir, 'target', fn), sr=44100)
     if not len(others) == len(drums):
         to_pad = max(len(others), len(drums)) 
         others = pad_to(others, to_pad)
@@ -35,32 +35,53 @@ def segmentation(fn, downbeats, length, audio_dir):
         while(count*length+length < len(others)):
             others_s = others[count*length:count*length+length]
             drums_s = drums[count*length:count*length+length]
-            sf.write(os.path.join(audio_dir, 'segment_audio', 'others',  f'{fn.split(".")[0]}_{count}.wav'), others_s, 44100)
-            sf.write(os.path.join(audio_dir, 'segment_audio', 'target',  f'{fn.split(".")[0]}_{count}.wav'), drums_s, 44100)
+            sf.write(os.path.join('data/segment_audio', 'others', f'{fn.split(".")[0]}_{count}.wav'), others_s, 44100)
+            sf.write(os.path.join('data/segment_audio', 'target',  f'{fn.split(".")[0]}_{count}.wav'), drums_s, 44100)
             count += 1
     else:
-        start = downbeats.pop(0)
         count = 0 
+        # handle empty list of downbeats
+        if len(downbeats) == 0:
+            print(f"No downbeats detected for file: {fn}")
+            return []
+
+        # print('segmentation by downbeats', downbeats)
+        start = downbeats.pop(0)
+        
         while len(downbeats) != 0:
             cur = downbeats.pop(0)
             if cur - start > 24:
                 start = round(start * 44100 )
                 drums_s = drums[start:start+length]
                 others_s = others[start:start+length]
-                sf.write(os.path.join(audio_dir, 'segment_audio', 'others',  f'{fn.split(".")[0]}_{count}.wav'), others_s, 44100)
-                sf.write(os.path.join(audio_dir, 'segment_audio', 'target',  f'{fn.split(".")[0]}_{count}.wav'), drums_s, 44100)
+                # handle wav and wav
+
+                if fn.endswith('.wav'):
+                    sf.write(os.path.join('data/segment_audio', 'others', f'{fn.split(".")[0]}_{count}.wav'), others_s, 44100)
+                    sf.write(os.path.join('data/segment_audio', 'target',  f'{fn.split(".")[0]}_{count}.wav'), drums_s, 44100)
+                elif fn.endswith('.mp3'): 
+                    raise NotImplementedError("MP3 format is not supported yet.")
+                    
+                    
+                else:
+                    raise ValueError(f"Unsupported file format: {fn}")
+
+                
                 start = cur
                 count += 1
 
-def inference(fns, seg_by_downbeats, length):
+def inference(fns, seg_by_downbeats, length, audio_dir):
     print('step 1: data segment')
     if seg_by_downbeats:
+        
         beat_proc = RNNDownBeatProcessor()
         track_proc = DBNDownBeatTrackingProcessor(beats_per_bar=[3, 4], fps=100)
     for fn in tqdm(fns):
         if seg_by_downbeats:
+            print('segmentation by downbeats')
             downbeats = get_downbeats(fn, beat_proc, track_proc, audio_dir)
         else:
+            print('segmentation by hop window')
             downbeats = None
         segmentation(fn, downbeats, length, audio_dir)
 

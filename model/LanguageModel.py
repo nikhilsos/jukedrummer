@@ -2,10 +2,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import math
-from fast_transformers.transformers import *
+# from fast_transformers.transformers import *
 import numpy as np
 
-from jukebox.transformer.ops import Conv1D
+from jukebox.jukebox.transformer.ops import Conv1D
 from model.autoregressive import ConditionalAutoregressive2D
 
 def nucleus(probs, p=0.5):
@@ -55,8 +55,8 @@ class PositionalEncoding(nn.Module):
         x = x + self.pe[:,:x.size(1)]
         return self.dropout(x)
 
-from jukebox.hparams import setup_hparams
-from jukebox.transformer.ops import Conv1D, LayerNorm
+from jukebox.jukebox.hparams import setup_hparams
+from jukebox.jukebox.transformer.ops import Conv1D, LayerNorm
 
 
 class JukeTransformer(nn.Module):
@@ -69,7 +69,7 @@ class JukeTransformer(nn.Module):
         self.prime_state_ln = LayerNorm(args.d_model)
         self.binfo_type = args.binfo_type
         if self.binfo_type == 'low':
-            self.binfo_state_proj = Conv1D(50, args.d_model)
+            self.bact_state_proj = Conv1D(50, args.d_model)
         elif self.binfo_type == 'mid':
             self.onset_emb = nn.Embedding(2, args.d_model)
         elif self.binfo_type == 'high':
@@ -102,7 +102,8 @@ class JukeTransformer(nn.Module):
     def binfo_conditioner(self, binfo):
         if self.binfo_type == 'low':
             binfo = F.interpolate(binfo.unsqueeze(1), size=(self.prior.encoder_dims, binfo.size(-1))).squeeze(1)
-            binfo = self.binfo_state_proj(binfo)
+            print(f'binfo shape, during llm training: {binfo.shape}') # debugging
+            binfo = self.bact_state_proj(binfo)
         elif self.binfo_type == 'mid':
             binfo = self.onset_emb(binfo.long())
         elif self.binfo_type == 'high':
@@ -180,5 +181,3 @@ class JukeTransformer(nn.Module):
                                                     pos_emb=None, **prior_kwargs)
         self.prime_prior = ConditionalAutoregressive2D(x_cond=args.binfo_type is not None, y_cond=False, only_encode=True, 
                                                     mask=False, pos_emb=None, **prime_kwargs)
-
-

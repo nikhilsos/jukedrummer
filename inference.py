@@ -64,7 +64,9 @@ if __name__ == '__main__':
     )
 
     lm = JukeTransformer(hps).to(device)
-    lm_ckpt = torch.load(os.path.join(hps.ckpt_dir, f'exp{exp_idx}.pkl'), map_location=lambda storage, loc: storage)
+    lm_ckpt = torch.load(os.path.join(hps.ckpt_dir, f'exp{exp_idx}_pans.pkl'), map_location=lambda storage, loc: storage)
+    print("lm_ckpt['model']", '\n'.join(lm_ckpt['model'].keys()))
+    print("lm", '\n'.join(lm.state_dict().keys()))
     lm.load_state_dict(lm_ckpt['model'])
 
     
@@ -74,7 +76,7 @@ if __name__ == '__main__':
         device=device
     )
     
-    beat_extractor = BeatInfoExtractor(info_type=hps.binfo_type, device=device)
+    beat_extractor = BeatInfoExtractor(binfo_type=hps.binfo_type, device=device)
     mel_extractor = Audio2Mel(MEL)
     
     dataset = End2EndWrapper(
