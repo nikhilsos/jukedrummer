@@ -1,150 +1,495 @@
+import os
 import torch
 import torch.nn as nn
-import os
-from tqdm import tqdm 
+from tqdm import tqdm
 from torchvision.utils import make_grid
-
-from dataset import *
-from model.vqvae import VQVAE, Sampler
 import argparse
-
+import pickle
+import numpy as np
+import sys
+from dataset import MelDataset, compute_mean_std
+from model.vqvae import VQVAE, Sampler
 from hparams import setup_vq_hparams, OPT
-from jukebox.train import get_optimizer
+from jukebox.jukebox.train import get_optimizer
+from icecream import ic
+import torch.nn.functional as F
+def parse_arguments():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--vq_idx', type=int, required=True, help="Index of the VQ-VAE model")
+    parser.add_argument('--data_type', type=str, choices=['target', 'others'], required=True)
+    parser.add_argument('--cuda', type=int, default=0)
+    parser.add_argument('--wandb', action='store_true')
+
+    if len(sys.argv) == 1:
+        parser.print_help()
+        # sys.exit(1)
+
+    return parser.parse_args()
+
+
 
 def get_dataset(hps, data_type):
-    with open(os.path.join(hps.path, 'dataset.pkl'), 'rb') as f:
-        dataset = pickle.load(f)
-    
-    mean, std, non_nan = compute_mean_std(
-        os.path.join(hps['path'], 'mel', args.data_type), dataset
-    )
+    dataset_path = os.path.join(hps['path'], 'dataset.pkl')
+    if not os.path.exists(dataset_path):
+        raise FileNotFoundError(f"Dataset file not found at {dataset_path}")
 
-    tr_ids = dataset[0]
-    va_ids = dataset[1]
+    with open(dataset_path, 'rb') as f:
+        dataset = pickle.load(f)
+
+    # ic(dataset)
+
+    # verify dataset is not empty
+    if dataset_path.endswith('.pkl'):
+        if not isinstance(dataset, (list, tuple)) or len(dataset) != 2:
+            raise ValueError(f"Invalid dataset format in {dataset_path}")
+        if len(dataset[0]) == 0 or len(dataset[1]) == 0:
+            raise ValueError(f"Dataset is empty in {dataset_path}")
+
+    # print("dataset type:", type(dataset))
+    # print("dataset length:", len(dataset))
+
+    if isinstance(dataset, (list, tuple)):
+        print("dataset[0] (train):", dataset[0][:5] if len(dataset[0]) > 0 else "EMPTY")
+        print("dataset[1] (valid):", dataset[1][:5] if len(dataset[1]) > 0 else "EMPTY")
+
+    mean, std, _ = compute_mean_std(os.path.join(hps['path'], 'mel', data_type), dataset)
+    tr_ids, va_ids = dataset[0], dataset[1]
+
+    print(f"Train IDs count: {len(tr_ids)}")
+    print(f"Valid IDs count: {len(va_ids)}")
+
+
+    
 
     tr_dataset = MelDataset(tr_ids, hps, data_type)
     va_dataset = MelDataset(va_ids, hps, data_type)
 
-    tr_dataloader = DataLoader(
+    # ensure the dataset is not empty
+    if len(tr_dataset) == 0 or len(va_dataset) == 0:
+        raise ValueError("Training or validation dataset is empty. Please check the dataset paths and contents.")
+    print(f"Train dataset size: {len(tr_dataset)}, Validation dataset size: {len(va_dataset)}")
+    
+    def custom_collate(batch):
+        max_width = 8192
+        processed = []
+
+        for x in batch:
+            # Convert to tensor if needed
+            if isinstance(x, np.ndarray):
+                x = torch.from_numpy(x)
+
+            # Ensure float32 dtype (optional, but common)
+            x = x.float()
+
+            # Pad or truncate
+            if x.shape[1] < max_width:
+                x = F.pad(x, (0, max_width - x.shape[1]))
+            elif x.shape[1] > max_width:
+                x = x[:, :max_width]
+
+            processed.append(x)
+
+        return torch.stack(processed)
+
+
+
+    tr_dataloader = torch.utils.data.DataLoader(
         dataset=tr_dataset,
-        batch_size=hps.batch_size,
+        batch_size=hps['batch_size'],
         num_workers=4,
         shuffle=True,
-        drop_last=True,
+        drop_last=False,
         pin_memory=True
+        # collate_fn = custom_collate
     )
 
-    va_dataloader = DataLoader(
+    va_dataloader = torch.utils.data.DataLoader(
         dataset=va_dataset,
-        batch_size=hps.batch_size,
+        batch_size=hps['batch_size'],
         num_workers=1,
         shuffle=True,
-        drop_last=True,
-        pin_memory=True,
+        drop_last=False,
+        pin_memory=True
+        # collate_fn = custom_collate
     )
-    return tr_dataloader, va_dataloader, mean, std,
+    # verify the dataloaders are not empty
+    if len(tr_dataloader) == 0 or len(va_dataloader) == 0:
+        raise ValueError("Dataloaders are empty. Please check the dataset paths and contents.")
+
+    return tr_dataloader, va_dataloader, mean, std
 
 
-### Hyper Parameter Setting
-parser = argparse.ArgumentParser()
-parser.add_argument('--vq_idx', type=int)
-parser.add_argument('--data_type', type=str, choices={'target', 'others'})
-parser.add_argument('--cuda', type=int)
-parser.add_argument('--wandb', action='store_true')
-args = parser.parse_args()
-hps = setup_vq_hparams('vq'+str(args.vq_idx))
-sequence_length = 4096 // (np.prod(hps['upsample_ratios']))
-device = torch.device(f'cuda:{args.cuda}')
-if args.data_type == 'others':
-    hps['codebook_size'] = 1024
-
-## Model Setting
-encoder = Sampler(input_dim=80, output_dim=64, z_scale_factors=hps['downsample_ratios']) 
-decoder = Sampler(input_dim=64, output_dim=80, z_scale_factors=hps['upsample_ratios'])
-model = VQVAE(
-    codebook_size=hps['codebook_size'],
-    encoder= encoder,
-    decoder= decoder,
-    device= device
+def setup_model(hps, device):
+    encoder = Sampler(input_dim=80, output_dim=64, z_scale_factors=hps['downsample_ratios'])
+    decoder = Sampler(input_dim=64, output_dim=80, z_scale_factors=hps['upsample_ratios'])
+    model = VQVAE(
+        codebook_size=hps['codebook_size'],
+        encoder=encoder,
+        decoder=decoder,
+        device=device
     ).to(device)
+    return model
 
-### Data Setting
 
-tr_dataloader, va_dataloader, mean, std = get_dataset(hps, data_type = args.data_type )
+def main():
+    args = parse_arguments()
+    hps = setup_vq_hparams(f'vq{args.vq_idx}')
+    if args.data_type == 'others':
+        hps['codebook_size'] = 1024
 
-### OPT
-opt, shd, scalar = get_optimizer(model, OPT)
-criterion = nn.MSELoss()
+    sequence_length = 4096 // np.prod(hps['upsample_ratios'])
+    device = torch.device(f'cuda:{args.cuda}' if torch.cuda.is_available() else 'cpu')
 
-### WANDB
-try:
-    import wandb
-    is_wandb = True if args.wandb else False
-except ImportError:
+    tr_loader, va_loader, mean, std = get_dataset(hps, args.data_type)
+    if len(tr_loader) == 0 or len(va_loader) == 0:
+        raise ValueError("Training or validation dataset is empty. Please check the dataset paths and contents.")
+
+    print(f"Train dataset size: {len(tr_loader.dataset)}, Validation dataset size: {len(va_loader.dataset)}")
+    model = setup_model(hps, device)
+    opt, scheduler, scaler = get_optimizer(model, OPT)
+    criterion = nn.MSELoss()
+
+    # Optional WandB logging
     is_wandb = False
+    if args.wandb:
+        try:
+            import wandb
+            is_wandb = True
+            wandb.init(
+                project='JukeDrummer VQ-VAE',
+                config=hps,
+                dir='./wandb',
+                name=f'{hps["name"]}_{args.data_type}'
+            )
+        except ImportError:
+            print("wandb not installed. Proceeding without logging.")
 
-if is_wandb:
-    run = wandb.init(
-        project='JukeDrummer VQ-VAE',
-        entity='',
-        dir='./wandb',
-        config=hps,
-        name=f'{hps.name} {args.data_type}',
-    )
+    mean, std = mean.to(device), std.to(device)
 
-### TRAINNING 
-mean, std = mean.to(device), std.to(device)
-for epoch in range(1000 + 1):
-    model.train()
-    summary = {}
-    for mel in tqdm(tr_dataloader):
-        opt.zero_grad()
-        mel = mel.to(device) 
-        mel = (mel - mean) / std
-        r_mel, commit_loss, metric = model(mel)
-        reconstruct_loss = criterion(r_mel, mel)
-        loss = commit_loss * hps['commit_beta'] + reconstruct_loss
+    for epoch in range(1001):
+        print(f"\n--- Epoch {epoch} ---")
 
-        loss.backward()
-        opt.step()
-        shd.step()
-        summary['train reconstruct loss'] = reconstruct_loss.item()
-        summary['train commit loss'] = commit_loss.item()
+        model.train()
+        summary = {}
 
-    model.eval()
-    for mel in tqdm(va_dataloader):
-        mel = mel.to(device)
-        mel = (mel - mean) / std
-        with torch.no_grad():
+        train_loop = tqdm(tr_loader, desc=f"Training Epoch {epoch}", leave=False)
+        for mel in train_loop:
+            opt.zero_grad()
+            mel = mel.to(device)
+            mel = (mel - mean) / std
+
             r_mel, commit_loss, metric = model(mel)
-            reconstruct_loss = criterion(r_mel, mel)
+            recon_loss = criterion(r_mel, mel)
+            loss = commit_loss * hps['commit_beta'] + recon_loss
 
-        summary['valid reconstruct loss'] = reconstruct_loss.item()
-        summary['valid commit loss'] = commit_loss.item()
+            loss.backward()
+            opt.step()
+            scheduler.step()
 
-    if epoch % 50 == 0:
-        r_mel_img = make_grid(r_mel[:4].unsqueeze(1), nrow=1).detach().cpu().numpy()
-        r_mel_img = wandb.Image(r_mel_img.transpose(1,2,0))
+            summary['train_reconstruct_loss'] = recon_loss.item()
+            summary['train_commit_loss'] = commit_loss.item()
 
-        mel_img = make_grid(mel[:4].unsqueeze(1), nrow=1).detach().cpu().numpy()
-        mel_img = wandb.Image(mel_img.transpose(1,2,0))
+        model.eval()
+        with torch.no_grad():
+            valid_loop = tqdm(va_loader, desc=f"Validation Epoch {epoch}", leave=False)
+            for mel in valid_loop:
+                mel = mel.to(device)
+                mel = (mel - mean) / std
+
+                r_mel, commit_loss, metric = model(mel)
+                recon_loss = criterion(r_mel, mel)
+
+                summary['valid_reconstruct_loss'] = recon_loss.item()
+                summary['valid_commit_loss'] = commit_loss.item()
+
+                if epoch % 50 == 0:
+                    mel_img = make_grid(mel[:4].unsqueeze(1), nrow=1).cpu().numpy().transpose(1, 2, 0)
+                    r_mel_img = make_grid(r_mel[:4].unsqueeze(1), nrow=1).cpu().numpy().transpose(1, 2, 0)
+                    if is_wandb:
+                        wandb.log({
+                            'real': wandb.Image(mel_img),
+                            'reconstruct': wandb.Image(r_mel_img)
+                        })
+
+
+                        if is_wandb:
+                            wandb.log({
+                                'real': wandb.Image(mel_img),
+                                'reconstruct': wandb.Image(r_mel_img)
+                            })
+
+                    
+
+        # Save model
+        model_path = os.path.join(hps['ckpt_dir'], f"{hps['name']}_{args.data_type}.pkl")
+        torch.save({
+            "model": model.state_dict(),
+            "mean": mean.cpu().numpy(),
+            "std": std.cpu().numpy(),
+            "hps": hps
+        }, model_path)
+
+        print(f"Epoch {epoch} Summary:")
+        print(summary)
+        if 'metric' in locals():
+            print(f"Usage: {metric['usage'].item()} | Used Curr: {metric['used_curr'].item()}")
+        else:
+            print("Metric not available for this epoch.")
+
+
         if is_wandb:
-            wandb.log(data={'real': mel_img, 'reconstruct': r_mel_img})
-        print(hps['name'])
+            wandb.log(summary, step=epoch)
+
+
+if __name__ == '__main__':
+    main()
+
+'''
+import os
+import torch
+import torch.nn as nn
+from tqdm import tqdm
+from torchvision.utils import make_grid
+import argparse
+import pickle
+import numpy as np
+import sys
+from dataset import MelDataset, compute_mean_std
+from model.vqvae import VQVAE, Sampler
+from hparams import setup_vq_hparams, OPT
+from jukebox.jukebox.train import get_optimizer
+from icecream import ic
+import torch.nn.functional as F
+def parse_arguments():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--vq_idx', type=int, required=True, help="Index of the VQ-VAE model")
+    parser.add_argument('--data_type', type=str, choices=['target', 'others'], required=True)
+    parser.add_argument('--cuda', type=int, default=0)
+    parser.add_argument('--wandb', action='store_true')
+
+    if len(sys.argv) == 1:
+        parser.print_help()
+        # sys.exit(1)
+
+    return parser.parse_args()
+
+
+
+def get_dataset(hps, data_type):
+    dataset_path = os.path.join(hps['path'], 'dataset.pkl')
+    if not os.path.exists(dataset_path):
+        raise FileNotFoundError(f"Dataset file not found at {dataset_path}")
+
+    with open(dataset_path, 'rb') as f:
+        dataset = pickle.load(f)
+
+    # ic(dataset)
+
+    # verify dataset is not empty
+    if dataset_path.endswith('.pkl'):
+        if not isinstance(dataset, (list, tuple)) or len(dataset) != 2:
+            raise ValueError(f"Invalid dataset format in {dataset_path}")
+        if len(dataset[0]) == 0 or len(dataset[1]) == 0:
+            raise ValueError(f"Dataset is empty in {dataset_path}")
+
+    # print("dataset type:", type(dataset))
+    # print("dataset length:", len(dataset))
+
+    if isinstance(dataset, (list, tuple)):
+        print("dataset[0] (train):", dataset[0][:5] if len(dataset[0]) > 0 else "EMPTY")
+        print("dataset[1] (valid):", dataset[1][:5] if len(dataset[1]) > 0 else "EMPTY")
+
+    mean, std, _ = compute_mean_std(os.path.join(hps['path'], 'mel', data_type), dataset)
+    tr_ids, va_ids = dataset[0], dataset[1]
+
+    print(f"Train IDs count: {len(tr_ids)}")
+    print(f"Valid IDs count: {len(va_ids)}")
+
 
     
-    model_dict = {
-        "model": model.state_dict(),
-        "mean": mean.detach().cpu().numpy(),
-        "std": std.detach().cpu().numpy(),
-        "hps": dict(hps),
-    }
 
-    torch.save(
-        model_dict, 
-        os.path.join(hps.ckpt_dir, f'{hps.name}_{args.data_type}.pkl', ))
+    tr_dataset = MelDataset(tr_ids, hps, data_type)
+    va_dataset = MelDataset(va_ids, hps, data_type)
 
-    print(summary)
-    print(f"{epoch} || usage: {metric['usage'].item()} | used_curr: {metric['used_curr'].item()}")
-    if is_wandb:
-        wandb.log(data=summary, step=epoch)
+    # ensure the dataset is not empty
+    if len(tr_dataset) == 0 or len(va_dataset) == 0:
+        raise ValueError("Training or validation dataset is empty. Please check the dataset paths and contents.")
+    print(f"Train dataset size: {len(tr_dataset)}, Validation dataset size: {len(va_dataset)}")
+    
+    def custom_collate(batch):
+        max_width = 8192
+        processed = []
+
+        for x in batch:
+            # Convert to tensor if needed
+            if isinstance(x, np.ndarray):
+                x = torch.from_numpy(x)
+
+            # Ensure float32 dtype (optional, but common)
+            x = x.float()
+
+            # Pad or truncate
+            if x.shape[1] < max_width:
+                x = F.pad(x, (0, max_width - x.shape[1]))
+            elif x.shape[1] > max_width:
+                x = x[:, :max_width]
+
+            processed.append(x)
+
+        return torch.stack(processed)
+
+
+
+    tr_dataloader = torch.utils.data.DataLoader(
+        dataset=tr_dataset,
+        batch_size=hps['batch_size'],
+        num_workers=4,
+        shuffle=True,
+        drop_last=False,
+        pin_memory=True,
+        collate_fn = custom_collate
+    )
+
+    va_dataloader = torch.utils.data.DataLoader(
+        dataset=va_dataset,
+        batch_size=hps['batch_size'],
+        num_workers=1,
+        shuffle=True,
+        drop_last=False,
+        pin_memory=True,
+        collate_fn = custom_collate
+    )
+    # verify the dataloaders are not empty
+    if len(tr_dataloader) == 0 or len(va_dataloader) == 0:
+        raise ValueError("Dataloaders are empty. Please check the dataset paths and contents.")
+
+    return tr_dataloader, va_dataloader, mean, std
+
+
+def setup_model(hps, device):
+    encoder = Sampler(input_dim=80, output_dim=64, z_scale_factors=hps['downsample_ratios'])
+    decoder = Sampler(input_dim=64, output_dim=80, z_scale_factors=hps['upsample_ratios'])
+    model = VQVAE(
+        codebook_size=hps['codebook_size'],
+        encoder=encoder,
+        decoder=decoder,
+        device=device
+    ).to(device)
+    return model
+
+
+def main():
+    args = parse_arguments()
+    hps = setup_vq_hparams(f'vq{args.vq_idx}')
+    if args.data_type == 'others':
+        hps['codebook_size'] = 1024
+
+    sequence_length = 4096 // np.prod(hps['upsample_ratios'])
+    device = torch.device(f'cuda:{args.cuda}' if torch.cuda.is_available() else 'cpu')
+
+    tr_loader, va_loader, mean, std = get_dataset(hps, args.data_type)
+    if len(tr_loader) == 0 or len(va_loader) == 0:
+        raise ValueError("Training or validation dataset is empty. Please check the dataset paths and contents.")
+
+    print(f"Train dataset size: {len(tr_loader.dataset)}, Validation dataset size: {len(va_loader.dataset)}")
+    model = setup_model(hps, device)
+    opt, scheduler, scaler = get_optimizer(model, OPT)
+    criterion = nn.MSELoss()
+
+    # Optional WandB logging
+    is_wandb = False
+    if args.wandb:
+        try:
+            import wandb
+            is_wandb = True
+            wandb.init(
+                project='JukeDrummer VQ-VAE',
+                config=hps,
+                dir='./wandb',
+                name=f'{hps["name"]}_{args.data_type}'
+            )
+        except ImportError:
+            print("wandb not installed. Proceeding without logging.")
+
+    mean, std = mean.to(device), std.to(device)
+
+    for epoch in range(1001):
+        print(f"\n--- Epoch {epoch} ---")
+
+        model.train()
+        summary = {}
+
+        train_loop = tqdm(tr_loader, desc=f"Training Epoch {epoch}", leave=False)
+        for mel in train_loop:
+            opt.zero_grad()
+            mel = mel.to(device)
+            mel = (mel - mean) / std
+
+            r_mel, commit_loss, metric = model(mel)
+            recon_loss = criterion(r_mel, mel)
+            loss = commit_loss * hps['commit_beta'] + recon_loss
+
+            loss.backward()
+            opt.step()
+            scheduler.step()
+
+            summary['train_reconstruct_loss'] = recon_loss.item()
+            summary['train_commit_loss'] = commit_loss.item()
+
+        model.eval()
+        with torch.no_grad():
+            valid_loop = tqdm(va_loader, desc=f"Validation Epoch {epoch}", leave=False)
+            for mel in valid_loop:
+                mel = mel.to(device)
+                mel = (mel - mean) / std
+
+                r_mel, commit_loss, metric = model(mel)
+                recon_loss = criterion(r_mel, mel)
+
+                summary['valid_reconstruct_loss'] = recon_loss.item()
+                summary['valid_commit_loss'] = commit_loss.item()
+
+                if epoch % 50 == 0:
+                    mel_img = make_grid(mel[:4].unsqueeze(1), nrow=1).cpu().numpy().transpose(1, 2, 0)
+                    r_mel_img = make_grid(r_mel[:4].unsqueeze(1), nrow=1).cpu().numpy().transpose(1, 2, 0)
+                    if is_wandb:
+                        wandb.log({
+                            'real': wandb.Image(mel_img),
+                            'reconstruct': wandb.Image(r_mel_img)
+                        })
+
+
+                        if is_wandb:
+                            wandb.log({
+                                'real': wandb.Image(mel_img),
+                                'reconstruct': wandb.Image(r_mel_img)
+                            })
+
+                    
+
+        # Save model
+        model_path = os.path.join(hps['ckpt_dir'], f"{hps['name']}_{args.data_type}.pkl")
+        torch.save({
+            "model": model.state_dict(),
+            "mean": mean.cpu().numpy(),
+            "std": std.cpu().numpy(),
+            "hps": hps
+        }, model_path)
+
+        print(f"Epoch {epoch} Summary:")
+        print(summary)
+        if 'metric' in locals():
+            print(f"Usage: {metric['usage'].item()} | Used Curr: {metric['used_curr'].item()}")
+        else:
+            print("Metric not available for this epoch.")
+
+
+        if is_wandb:
+            wandb.log(summary, step=epoch)
+
+
+if __name__ == '__main__':
+    main()
+
+
+'''

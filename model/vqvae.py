@@ -5,7 +5,7 @@ import os
 import numpy as np
 
 from einops.layers.torch import Rearrange
-from jukebox.vqvae.bottleneck import BottleneckBlock
+from jukebox.jukebox.vqvae.bottleneck import BottleneckBlock
 
 class RCBlock(nn.Module):
     def __init__(self, output_dim, ks, dilation, num_groups):
@@ -113,7 +113,7 @@ class Sampler(nn.Module):
 class VQVAE(nn.Module):
     def __init__(self, codebook_size, encoder=None, decoder=None, device=None):
         super().__init__()
-        self.vq = BottleneckBlock(codebook_size, 64, 0.99, device)
+        self.vq = BottleneckBlock(codebook_size, 64, 0.99)
         self.encoder = encoder 
         self.decoder = decoder 
 
@@ -157,4 +157,3 @@ class VQVAE(nn.Module):
 
 
 
-        

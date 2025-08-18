@@ -24,7 +24,7 @@ def main(args):
     fns = os.listdir(os.path.join(audio_dir, 'target'))
     fns = [f for f in fns if f.endswith('.wav')]
     # 1. Segmentation by either downbeats or hop window
-    data_segmentation(fns, args.segment_by_downbeats, length)
+    data_segmentation(fns, args.segment_by_downbeats, length, audio_dir)
     # 2. Extract Mel spectrograms from segemented audio waves
     melspec_extraction(fns, audio_dir, mel_dir)
     # 3. Divide dataset into train & valid subset
@@ -32,15 +32,11 @@ def main(args):
     # 4. Beat Information Extraction
     beat_info_extraction(fns, 'low', audio_dir, beat_dir, args.cuda)
 
-
-    
-
-
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--audio_dir', type=str, help='directory path of unsegemented audio', default='data/audio')
     parser.add_argument('--segement_audio_dir', type=str, help='directory path of segemented audio', default='data/segment_audio')
-    parser.add_argument('--mel_dir', type=str, help='directory path of segemented audio', default='data/mel')
+    parser.add_argument('--mel_dir', type=str, help='directory path of segemented audio', default='data/mel/target')
     parser.add_argument('--beat_dir', type=str, help='directory path of beat information', default='data/beats')
 
     parser.add_argument('--cuda', type=int, help='the id of cuda want to use')
@@ -48,3 +44,4 @@ if __name__ == '__main__':
     parser.add_argument('--segment_by_downbeats', type=bool, default=True, help='determine whether the segement would be made according to downbeats or not')
     args = parser.parse_args()
     main(args)
+

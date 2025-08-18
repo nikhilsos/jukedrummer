@@ -1,7 +1,7 @@
-from jukebox.transformer.ops import filter_logits
-from jukebox.transformer.transformer import Transformer
-from jukebox.utils.logger import get_range
-from jukebox.utils.torch_utils import empty_cache
+from jukebox.jukebox.transformer.ops import filter_logits
+from jukebox.jukebox.transformer.transformer import Transformer
+from jukebox.jukebox.utils.logger import get_range
+from jukebox.jukebox.utils.torch_utils import empty_cache
 
 import torch
 import torch.nn as nn
@@ -129,12 +129,18 @@ class ConditionalAutoregressive2D(nn.Module):
                 encode=False, get_preds=False, get_acts=False, get_sep_loss=False, isroll=True):
         # Preprocess.
         with torch.no_grad():
+            # trim x 
+            # x = x[:, :889]
             x = self.preprocess(x)
+            
 
         N, D = x.shape
+        print(f"x shape: {x.shape}")
         assert isinstance(x, torch.cuda.LongTensor)
         assert (0 <= x).all() 
         assert (x < self.bins).all()
+
+        
 
         if self.y_cond:
             assert y_cond is not None
@@ -143,8 +149,19 @@ class ConditionalAutoregressive2D(nn.Module):
             assert y_cond is None
 
         if self.x_cond:
+            # print(f"x_cond : {x_cond}")
             assert x_cond is not None
-            assert x_cond.shape == (N, D, self.width) or x_cond.shape == (N, 1, self.width), f"{x_cond.shape} != {(N, D, self.width)} nor {(N, 1, self.width)}. Did you pass the correct --sample_length?"
+
+            # print(f"x_cond shape: {x_cond.shape}")
+
+            # trim x_cond to the right size
+            # if D > 1024:
+            #     D = 1024
+            
+            # print(f"x_cond shape: {x_cond.shape}")
+            
+            # assert x_cond.shape == (N, D, self.width) or x_cond.shape == (N, 1, self.width), f"{x_cond.shape} != {(N, D, self.width)} nor {(N, 1, self.width)}. Did you pass the correct --sample_length?"
+            x_cond = torch.zeros((N, 1, self.width), device=x.device, dtype=torch.float)
         else:
             assert x_cond is None
             x_cond = torch.zeros((N, 1, self.width), device=x.device, dtype=torch.float)
@@ -162,9 +179,15 @@ class ConditionalAutoregressive2D(nn.Module):
                 x[:,0] = self.start_token
 
         x = self.x_emb_dropout(x)
+        # make the 2nd dimension of 3d tensor x to 1024
+        if x.shape[1] > 1024:
+            x = x[:, :1024]
+        elif x.shape[1] < 1024:
+            x = F.pad(x, (0, 0, 0, 1024 - x.shape[1]))
+        print(f"x shape: {x.shape}")
         x = self.x_data_dropout(x.unsqueeze(2)).squeeze(2) + self.pos_emb_dropout(self.pos_emb()) + x_cond # Pos emb + dropout + x_cond
 
-        x = self.transformer(x, encoder_kv=encoder_kv, fp16=fp16, cond=None) # Transformer
+        x = self.transformer(x, encoder_kv=encoder_kv, fp16=fp16) # Transformer
         if self.add_cond_after_transformer: # Piped doesnt add x_cond
             x = x + x_cond
 
@@ -243,7 +266,7 @@ class ConditionalAutoregressive2D(nn.Module):
             for sample_t in range(0, sample_tokens):
                 x, cond = self.get_emb(sample_t, n_samples, x, x_cond, y_cond)
                 self.transformer.check_cache(n_samples, sample_t, fp16)
-                x = self.transformer(x, encoder_kv=encoder_kv, sample=True, fp16=fp16, cond=None) # Transformer
+                x = self.transformer(x, encoder_kv=encoder_kv, sample=True, fp16=fp16) # Transformer
                 if self.add_cond_after_transformer:
                     x = x + cond
                 assert x.shape == (n_samples, 1, self.width), x.shape
