@@ -14,7 +14,7 @@ from dataset import End2EndWrapper
 from model.vocoder import HiFiVocoder
 from hparams import MEL
 from utils.functions import get_vqvae
-from utils.beats import BeatInfoExtractor
+from utils.pansori_beats import BeatInfoExtractor
 from utils.melspec import Audio2Mel
 
 def get_raw_data(input_dir):

@@ -22,7 +22,9 @@ from madmom.features.downbeats import DBNDownBeatTrackingProcessor as DownBproc
 
 def getRNNembedding(rnn, audio_fea, device, head = 'mix'):
     ## convert nparray feature into tensor
+    print('audio feature', audio_fea.shape, type(audio_fea)) # debugging
     in_fea = torch.tensor(audio_fea[np.newaxis, :, :]).float().to(device)
+
     rnn.eval()
     rnn.to(device)
     ## four head types: ['mix' , 'drum', 'nodrum', 'fuser']
@@ -66,7 +68,9 @@ class BeatInfoExtractor():
 
     def __call__(self, audio_file_path):
         feat = utils.get_feature(audio_file_path)
-        # try:
+        print(f'feature shape: {feat.shape}')
+        # [timestep, 314]
+     
         out, out_fea = getRNNembedding(self.rnn, audio_fea=feat, device=self.device,
                             head = 'nodrum')
         out = utils.prediction_conversion(out)
@@ -81,8 +85,6 @@ class BeatInfoExtractor():
             beat_info = out_fea
         else:
             beat_info = None
-
-        print(f'beat info shape: {beat_info.shape}', 'beat info type:', self.binfo_type)
         return beat_info
 
 

@@ -1,108 +1,56 @@
 """
-File: beat_tracking_tcn/models/beat_net_offline.py
-Description: Offline (non‑causal) variant of BeatNet.  
-             The Temporal Convolutional Network is replaced with a non‑causal
-             (bidirectional) dilated stack so every output frame has access to
-             both past *and* future context.  Designed for full‑sequence /
-             batch predictions where real‑time latency is not a concern.
-"""
+Ben Hayes 2020
 
+ECS7006P Music Informatics
+
+Coursework 1: Beat Tracking
+
+File: beat_tracking_tcn/models/beat_net.py
+Description: A CNN including a Temporal Convolutional Layer designed to predict
+             a vector of beat activations from an input spectrogram (tested
+             with mel spectrograms).
+"""
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from torch.nn.utils import weight_norm
-from typing import Tuple, Optional
-from beat_tracking_tcn.models.tcn import NonCausalTemporalConvolutionalNetwork  
-################################################################################
-# Non‑causal TCN building blocks ################################################
-################################################################################
+import sys
+sys.path.append('/home/nikhil/projects/dbtracker/')
+from beat_tracking_tcn.models.tcn import NonCausalTemporalConvolutionalNetwork
+# from beat_tracking_tcn.models.frontend import BeatThis
+from beat_tracking_tcn.models.ctcn import TemporalConvNet
 
-class _NonCausalTemporalBlock(nn.Module):
-    """A single non‑causal dilated residual block (no look‑ahead cropping)."""
+class BeatNet(nn.Module):
+    """ 
+    PyTorch implementation of a BeatNet CNN. The network takes a
+    mel-spectrogram input. It then learns an intermediate convolutional
+    representation, and finally applies a non-causal Temporal Convolutional
+    Network to predict a beat activation vector.
 
-    def __init__(
-        self,
-        in_ch: int,
-        out_ch: int,
-        kernel_size: int,
-        dilation: int,
-        dropout: float,
-    ):
-        super().__init__()
-        # Symmetric padding: pad equally left & right so length is preserved
-        pad = ((kernel_size - 1) * dilation) // 2
-
-        self.conv1 = weight_norm(
-            nn.Conv1d(in_ch, out_ch, kernel_size, padding=pad, dilation=dilation)
-        )
-        self.conv2 = weight_norm(
-            nn.Conv1d(out_ch, out_ch, kernel_size, padding=pad, dilation=dilation)
-        )
-        self.dropout = nn.Dropout(dropout)
-        self.relu = nn.ReLU()
-        self.downsample = (
-            nn.Conv1d(in_ch, out_ch, 1) if in_ch != out_ch else nn.Identity()
-        )
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        y = self.relu(self.conv1(x))
-        y = self.dropout(y)
-        y = self.relu(self.conv2(y))
-        y = self.dropout(y)
-        return self.relu(y + self.downsample(x))
-
-
-class NonCausalTemporalConvNet(nn.Module):
-    """Stack of non‑causal dilated residual blocks (TCN‑style)."""
-
-    def __init__(
-        self,
-        in_channels: int,
-        channels: Tuple[int, ...],
-        kernel_size: int = 5,
-        dropout: float = 0.1,
-    ):
-        super().__init__()
-        layers = []
-        num_levels = len(channels)
-        for i in range(num_levels):
-            dilation = 2 ** i  # Exponential growth, same as standard TCN
-            in_ch = in_channels if i == 0 else channels[i - 1]
-            out_ch = channels[i]
-            layers.append(
-                _NonCausalTemporalBlock(
-                    in_ch, out_ch, kernel_size, dilation, dropout
-                )
-            )
-        self.network = nn.Sequential(*layers)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:  # (B, C, T)
-        return self.network(x)
-
-################################################################################
-# BeatNet Offline ##############################################################
-################################################################################
-
-class BeatNetOffline(nn.Module):
-    """
-    Offline (non‑causal) BeatNet.  Identical front‑end CNN as the causal model
-    but uses a NonCausalTemporalConvNet so predictions at time *t* incorporate
-    future frames.  Suitable for batch/offline post‑processing pipelines.
+    The structure of this network is based on the model proposed in Davies &
+    Bock 2019.
     """
 
     def __init__(
-        self,
-        input: Tuple[int, int] = (3000, 81),
-        output: int = 3000,
-        channels: int = 16,
-        tcn_kernel_size: int = 5,
-        dropout: float = 0.1,
-        downbeats: bool = False,
-        num_rhythm_classes: int = 4,
-        tcn_levels: int = 11,
-    ):
-        super().__init__()
-        # ---------------- Front‑end CNN (unchanged) --------------------------
+            self,
+            input=(3000, 81),
+            output=3000,
+            channels=16,
+            tcn_kernel_size=5,
+            dropout=0.1,
+            downbeats=False):
+        """
+        Construct an instance of BeatNet.
+
+        Keyword Arguments:
+            input {tuple} -- Input dimensions (default: {(3000, 81)})
+            output {int} -- Output dimensions (default: {3000})
+            channels {int} -- Convolution channels (default: {16})
+            tcn_kernel_size {int} -- Size of dilated convolution kernels.
+                                     (default: {5})
+            dropout {float} -- Network connection dropout probability.
+                               (default: {0.1})
+        """
+        super(BeatNet, self).__init__()
+
         self.conv1 = nn.Conv2d(1, channels, (3, 3), padding=(1, 0))
         self.elu1 = nn.ELU()
         self.dropout1 = nn.Dropout(dropout)
@@ -117,25 +65,39 @@ class BeatNetOffline(nn.Module):
         self.elu3 = nn.ELU()
         self.dropout3 = nn.Dropout(dropout)
 
-        # ---------------- Non‑causal TCN ------------------------------------
         self.tcn = NonCausalTemporalConvolutionalNetwork(
             channels,
-            [channels] * 11, # [channels, 2*channels, 4* channels, 8* channels] * 11
+            [channels] * 11,
             tcn_kernel_size,
             dropout)
+        
 
+        
+        # self.beatthis = BeatThis(
+        #     transformer_dim=16,
+        #     ff_mult=4,
+        #     n_layers= 6,
+        #     head_dim=4,
+        #     dropout={"transformer": 0.2} 
 
-        # ---------------- Output heads --------------------------------------
-        self.out_beat = nn.Conv1d(channels, 1 if not downbeats else 2, 1)
+        # )
+
+        self.out = nn.Conv1d(16, 1 if not downbeats else 2, 1)
         self.sigmoid = nn.Sigmoid()
-        self.rhythm_pool = nn.AdaptiveAvgPool1d(1)
-        self.rhythm_fc = nn.Linear(channels, num_rhythm_classes)
 
-    # -------------------------------------------------------------------------
-    def forward(
-        self, x: torch.Tensor, return_embeddings: bool = False
-    ) -> Tuple[torch.Tensor, ...]:
-        """Forward pass.  Input x: (B, 1, T, F)."""
+    def forward(self, x, return_embeddings = False):
+        """
+        Feed a tensor forward through the BeatNet.
+
+        Arguments:
+            x {torch.Tensor} -- A PyTorch tensor of size specified in the
+                                constructor.
+
+        Returns:
+            torch.Tensor -- A PyTorch tensor of size specified in the
+                            constructor.
+        """
+        # print(x.shape)
         y = self.conv1(x)
         y = self.elu1(y)
         y = self.dropout1(y)
@@ -148,33 +110,37 @@ class BeatNetOffline(nn.Module):
 
         y = self.conv3(y)
         y = self.elu3(y)
-        y = self.dropout3(y)
 
-        # Reshape for 1D TCN: (B, C, T)
-        y = y.view(y.size(0), y.size(1), y.size(2))
+        y = y.view(-1, y.shape[1], y.shape[2])
         y = self.tcn(y)
-        embeddings = y  # (B, C, T)
+        embeddings = y
 
-        # Beat activations
-        beat_out = self.sigmoid(self.out_beat(y))  # (B, 1/2, T)
-        beat_out = beat_out.permute(0, 2, 1)  # (B, T, 1/2)
+        # y2 = y.view(-1, y.shape[2], y.shape[1])
+        
+        # # y2 = self.linear1(y2)
+        # y2 = self.beatthis(y2)
+        # combined_features = torch.cat((y, y2), dim=1)
+        # y = self.interaction_layer(combined_features)
 
-        # Rhythm classification
-        rhythm_feat = self.rhythm_pool(y).squeeze(-1)
-        rhythm_out = self.rhythm_fc(rhythm_feat)
+        y = self.out(y)
+        
+        
+        
+        y = self.sigmoid(y)
+        #current shape: (1,1, size), target shape( 1, size, 1)
+        y = y.squeeze(1)
+        y = y.unsqueeze(-1)
+        
 
         if return_embeddings:
-            return beat_out, rhythm_out, embeddings
-        return beat_out, rhythm_out
+            return y, embeddings
+        else:
+            return y
+    
+# unit test
 
-################################################################################
-# Quick sanity check ###########################################################
-################################################################################
-
-if __name__ == "__main__":
-    x = torch.randn(1, 1, 3000, 81)  # (batch, channel, time, freq)
-    model = BeatNetOffline(num_rhythm_classes=4)
-    beat, rhythm, emb = model(x, return_embeddings=True)
-    print("Beat      :", beat.shape)
-    print("Rhythm    :", rhythm.shape)
-    print("Embeddings:", emb.shape)
+if __name__ == '__main__':
+    x = torch.rand(1, 1, 3000, 81)
+    model = BeatNet()
+    _, y = model(x, return_embeddings = True)
+    print(y.shape)
