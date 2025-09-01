@@ -12,6 +12,7 @@ from model.vqvae import VQVAE, Sampler
 from hparams import setup_vq_hparams, OPT
 from jukebox.jukebox.train import get_optimizer
 from icecream import ic
+
 import torch.nn.functional as F
 def parse_arguments():
     parser = argparse.ArgumentParser()
@@ -48,15 +49,15 @@ def get_dataset(hps, data_type):
     # print("dataset type:", type(dataset))
     # print("dataset length:", len(dataset))
 
-    if isinstance(dataset, (list, tuple)):
-        print("dataset[0] (train):", dataset[0][:5] if len(dataset[0]) > 0 else "EMPTY")
-        print("dataset[1] (valid):", dataset[1][:5] if len(dataset[1]) > 0 else "EMPTY")
+    # if isinstance(dataset, (list, tuple)):
+    #     print("dataset[0] (train):", dataset[0][:5] if len(dataset[0]) > 0 else "EMPTY")
+    #     print("dataset[1] (valid):", dataset[1][:5] if len(dataset[1]) > 0 else "EMPTY")
 
     mean, std, _ = compute_mean_std(os.path.join(hps['path'], 'mel', data_type), dataset)
     tr_ids, va_ids = dataset[0], dataset[1]
 
-    print(f"Train IDs count: {len(tr_ids)}")
-    print(f"Valid IDs count: {len(va_ids)}")
+    # print(f"Train IDs count: {len(tr_ids)}")
+    # print(f"Valid IDs count: {len(va_ids)}")
 
 
     
@@ -99,8 +100,8 @@ def get_dataset(hps, data_type):
         num_workers=4,
         shuffle=True,
         drop_last=False,
-        pin_memory=True
-        # collate_fn = custom_collate
+        pin_memory=True,
+        collate_fn = custom_collate
     )
 
     va_dataloader = torch.utils.data.DataLoader(
@@ -109,8 +110,8 @@ def get_dataset(hps, data_type):
         num_workers=1,
         shuffle=True,
         drop_last=False,
-        pin_memory=True
-        # collate_fn = custom_collate
+        pin_memory=True,
+        collate_fn = custom_collate
     )
     # verify the dataloaders are not empty
     if len(tr_dataloader) == 0 or len(va_dataloader) == 0:
@@ -166,6 +167,11 @@ def main():
 
     mean, std = mean.to(device), std.to(device)
 
+    # Early stopping parameters
+    patience = 10
+    best_val_loss = float('inf')
+    counter = 0
+
     for epoch in range(1001):
         print(f"\n--- Epoch {epoch} ---")
 
@@ -190,6 +196,7 @@ def main():
             summary['train_commit_loss'] = commit_loss.item()
 
         model.eval()
+        val_loss = 0.0
         with torch.no_grad():
             valid_loop = tqdm(va_loader, desc=f"Validation Epoch {epoch}", leave=False)
             for mel in valid_loop:
@@ -201,6 +208,8 @@ def main():
 
                 summary['valid_reconstruct_loss'] = recon_loss.item()
                 summary['valid_commit_loss'] = commit_loss.item()
+
+                val_loss += recon_loss.item()  # Accumulate validation loss
 
                 if epoch % 50 == 0:
                     mel_img = make_grid(mel[:4].unsqueeze(1), nrow=1).cpu().numpy().transpose(1, 2, 0)
@@ -218,16 +227,28 @@ def main():
                                 'reconstruct': wandb.Image(r_mel_img)
                             })
 
-                    
+        # Average validation loss
+        val_loss /= len(va_loader)
+        print(f"Epoch {epoch}, Validation Loss: {val_loss}")
+        os.makedirs('checkpoints', exist_ok=True)
+        # Check for improvement
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            counter = 0  # Reset counter if improvement
+            print("Validation loss improved, saving best model...")
+            torch.save(model.state_dict(), f'checkpoints/best_model{args.data_type}.pth')  # Save the best model
+        else:
+            counter += 1  # Increment counter if no improvement
+            print(f"No improvement. Early stopping counter: {counter}/{patience}")
 
-        # Save model
-        model_path = os.path.join(hps['ckpt_dir'], f"{hps['name']}_{args.data_type}.pkl")
-        torch.save({
-            "model": model.state_dict(),
-            "mean": mean.cpu().numpy(),
-            "std": std.cpu().numpy(),
-            "hps": hps
-        }, model_path)
+        # Save the current model inside checkpoints directory
+        torch.save(model.state_dict(), f'checkpoints/current_model_epoch_{epoch}_{args.data_type}.pth')
+      
+
+        # Early stopping condition
+        if counter >= patience:
+            print("Early stopping triggered.")
+            break
 
         print(f"Epoch {epoch} Summary:")
         print(summary)
@@ -239,6 +260,7 @@ def main():
 
         if is_wandb:
             wandb.log(summary, step=epoch)
+
 
 
 if __name__ == '__main__':
@@ -413,6 +435,11 @@ def main():
 
     mean, std = mean.to(device), std.to(device)
 
+    # Early stopping parameters
+    patience = 10
+    best_val_loss = float('inf')
+    counter = 0
+
     for epoch in range(1001):
         print(f"\n--- Epoch {epoch} ---")
 
@@ -437,6 +464,7 @@ def main():
             summary['train_commit_loss'] = commit_loss.item()
 
         model.eval()
+        val_loss = 0.0
         with torch.no_grad():
             valid_loop = tqdm(va_loader, desc=f"Validation Epoch {epoch}", leave=False)
             for mel in valid_loop:
@@ -448,6 +476,8 @@ def main():
 
                 summary['valid_reconstruct_loss'] = recon_loss.item()
                 summary['valid_commit_loss'] = commit_loss.item()
+
+                val_loss += recon_loss.item()  # Accumulate validation loss
 
                 if epoch % 50 == 0:
                     mel_img = make_grid(mel[:4].unsqueeze(1), nrow=1).cpu().numpy().transpose(1, 2, 0)
@@ -465,16 +495,27 @@ def main():
                                 'reconstruct': wandb.Image(r_mel_img)
                             })
 
-                    
+        # Average validation loss
+        val_loss /= len(va_loader)
+        print(f"Epoch {epoch}, Validation Loss: {val_loss}")
 
-        # Save model
-        model_path = os.path.join(hps['ckpt_dir'], f"{hps['name']}_{args.data_type}.pkl")
-        torch.save({
-            "model": model.state_dict(),
-            "mean": mean.cpu().numpy(),
-            "std": std.cpu().numpy(),
-            "hps": hps
-        }, model_path)
+        # Check for improvement
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            counter = 0  # Reset counter if improvement
+            print("Validation loss improved, saving best model...")
+            torch.save(model.state_dict(), 'best_model.pth')  # Save the best model
+        else:
+            counter += 1  # Increment counter if no improvement
+            print(f"No improvement. Early stopping counter: {counter}/{patience}")
+
+        # Save the current model
+        torch.save(model.state_dict(), f'current_model_epoch_{epoch}.pth')
+
+        # Early stopping condition
+        if counter >= patience:
+            print("Early stopping triggered.")
+            break
 
         print(f"Epoch {epoch} Summary:")
         print(summary)

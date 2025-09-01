@@ -69,7 +69,7 @@ class JukeTransformer(nn.Module):
         self.prime_state_ln = LayerNorm(args.d_model)
         self.binfo_type = args.binfo_type
         if self.binfo_type == 'low':
-            self.bact_state_proj = Conv1D(1, args.d_model) # changed from 50 to 1 for pansori beat
+            self.bact_state_proj = Conv1D(50, args.d_model) # changed from 50 to 1 for pansori beat
         elif self.binfo_type == 'mid':
             self.onset_emb = nn.Embedding(2, args.d_model)
         elif self.binfo_type == 'high':

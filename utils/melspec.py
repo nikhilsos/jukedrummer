@@ -212,7 +212,7 @@ def inference(fns, audio_dir, mel_dir, process_num=4, data_types=("target", "oth
                 else:
                     stats[dt]["ok"] += 1
 
-    print("[INFO] Inference done:", stats)
+    # print("[INFO] Inference done:", stats)
     return stats
 
 
