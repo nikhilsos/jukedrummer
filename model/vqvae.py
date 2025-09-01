@@ -148,7 +148,9 @@ class VQVAE(nn.Module):
         hps_name = f'{hps.vq_name}_target.pkl'
         ckpt = torch.load(
             os.path.join(hps.ckpt_dir, hps_name), 
-            map_location=lambda storage, loc: storage
+            map_location=lambda storage,
+            loc: storage,
+            weights_only=False
         )
         self.load_state_dict(ckpt['model'])
         self.to(device)

@@ -68,7 +68,7 @@ class BeatInfoExtractor():
 
     def __call__(self, audio_file_path):
         feat = utils.get_feature(audio_file_path)
-        print(f'feature shape: {feat.shape}')
+        # print(f'feature shape: {feat.shape}')
         # [timestep, 314]
      
         out, out_fea = getRNNembedding(self.rnn, audio_fea=feat, device=self.device,
@@ -111,16 +111,20 @@ def inference(fns, binfo_type, audio_dir, beat_dir, n_cuda):
     device = torch.device(f'cuda:{n_cuda}' if torch.cuda.is_available() else 'cpu')
     extractor = BeatInfoExtractor(binfo_type, device, input_csv_path=input_csv_path)
 
-    for fn in tqdm(fns):
+    for fn in tqdm(fns, desc='Extracting Beat Information'):
         ### get feature of input audio file 
         save_path = os.path.join(beat_dir, binfo_type, fn.replace('.wav', '.npy'))
         audio_file_path = os.path.join(audio_dir, 'others', fn)
-        if os.path.isfile(save_path):
-            continue
+        # if os.path.isfile(save_path):
+        #     continue
         try:
+            # print(f'Processing file: {fn}')  # debugging
             beat_info = extractor(audio_file_path)
             ### save
-            np.save(save_path, beat_info)
+            try:
+                np.save(save_path, beat_info)
+            except Exception as e:
+                    print(f"Error saving {save_path}: {e}")
         except:
             print(f'{fn} error occur during beat information extraction')
 

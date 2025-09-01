@@ -10,47 +10,33 @@ from sklearn.preprocessing import StandardScaler
 from tqdm import tqdm
 
 def compute_mean_std(mel_dir, pkl=None):
-    # Compute means and standards of Mel spectrograms for every Mel-filter bank before normalization
-    # print('mel_dir:', mel_dir)
-    # print(f"Files in directory: {os.listdir(mel_dir)}")
     
-    in_fns = os.listdir(mel_dir)
-    in_fns = [fn for fn in in_fns if '.npy' in fn]
+    # Compute means and standards of Mel spectrograms for every Mel-filter bank before normalization
+    # Input:
+    #   mel_dir: an absolute path of Mel data directory 
+    #   pkl: Or, filenames of .pkl file is also accepted
+
+    if pkl is not None:
+        in_fns = pkl[0]
+    else:
+        in_fns = os.listdir(mel_dir)
+        in_fns = [fn for fn in in_fns if '.npy' in fn]
 
     scaler = StandardScaler()
-    # pbar = tqdm(in_fns, dynamic_ncols=True)
+    pbar = tqdm(in_fns, dynamic_ncols=True,)
     non_nan = []
-    valid_data_found = False  # Flag to check if valid data is found
-    print('Computing mean and std ...')
-    
-    for fn in in_fns:
-        # print('here now')
-        if not fn.endswith('.npy'):
-            fn += '.npy'
+    print('computing mean and std ...')
+    for fn in pbar:
         in_fp = os.path.join(mel_dir, fn)
-        # print(f"Trying to load: {in_fp}")
-        if not os.path.exists(in_fp):
-            print(f"File does not exist: {in_fp}")
+        data = np.load(in_fp).T 
+
+        if np.isnan(data).any():
+            print(fn)
             continue
-        try:
-            
-            data = np.load(in_fp).T
-            if np.isnan(data).any():
-                print(f"Skipping {fn} — contains NaNs")
-                continue
-            if data.size == 0:
-                print(f"Skipping {fn} — empty")
-                continue
-            non_nan.append(fn)
-            scaler.partial_fit(data)
-            valid_data_found = True
-            print(f"Loaded {fn} successfully")
-        except Exception as e:
-            print(f"Error loading {fn}: {e}")
-
-
-    if not valid_data_found:
-        raise ValueError("No valid data found to compute mean and std.")
+        non_nan += [fn]
+        scaler.partial_fit(data)
+        if True in np.isnan(scaler.scale_):
+            break
 
     mean = scaler.mean_
     std = scaler.scale_
@@ -66,17 +52,19 @@ class BeatInfoPairedDataset(Dataset):
         self.return_fn = return_fn
 
     def __getitem__(self, idx):
-        fname = self.fl[idx]
+        raw = self.fl[idx]
+        fname = os.path.basename(raw)              # ← strip any subdirs here
+
         tg_token = np.load(os.path.join(self.root, 'token', 'target', self.vq_name, fname))
         ot_token = np.load(os.path.join(self.root, 'token', 'others', self.vq_name, fname))
+
         if self.binfo_type is None:
-            ot_binfo = np.load(os.path.join(self.root, 'beats', 'low', fname))
+            ot_binfo = np.load(os.path.join(self.root, 'token', 'low', fname))
         else:
-            ot_binfo = np.load(os.path.join(self.root, 'beats', self.binfo_type, fname))
-        if self.return_fn:
-            return tg_token.squeeze(), ot_token.squeeze(), ot_binfo, fname
-        else:
-            return tg_token.squeeze(), ot_token.squeeze(), ot_binfo
+            ot_binfo = np.load(os.path.join(self.root, 'token', self.binfo_type, fname))
+
+        return (tg_token.squeeze(), ot_token.squeeze(), ot_binfo, fname) if self.return_fn \
+               else (tg_token.squeeze(), ot_token.squeeze(), ot_binfo)
 
     def __len__(self):
         return len(self.fl)
@@ -122,4 +110,3 @@ class End2EndWrapper(Dataset):
 
     def __len__(self,):
         return len(self.dpaths)
-
