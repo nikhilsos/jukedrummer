@@ -64,7 +64,7 @@ class JukeTransformer(nn.Module):
         super().__init__()
         self.make_juke_prior(args)
         self.use_tokens = args.name != 'lm9' and args.name != 'lm10'
-        print(f'use tokens:{self.use_tokens}')
+        # print(f'use tokens:{self.use_tokens}')
         self.prime_state_proj = Conv1D(args.d_model, args.d_model)
         self.prime_state_ln = LayerNorm(args.d_model)
         self.binfo_type = args.binfo_type
@@ -102,7 +102,7 @@ class JukeTransformer(nn.Module):
     def binfo_conditioner(self, binfo):
         if self.binfo_type == 'low':
             binfo = F.interpolate(binfo.unsqueeze(1), size=(self.prior.encoder_dims, binfo.size(-1))).squeeze(1)
-            print(f'binfo shape, during llm training: {binfo.shape}') # debugging
+            # print(f'binfo shape, during llm training: {binfo.shape}') # debugging
             binfo = self.bact_state_proj(binfo)
         elif self.binfo_type == 'mid':
             binfo = self.onset_emb(binfo.long())

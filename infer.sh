@@ -1,0 +1,2 @@
+# run inference on an input dir get results from default files in output dirrectory
+python inference.py --exp_idx 1  --cuda 0 --input_dir /home/nikhil/jukedrummer/data_test/audio/others --output_dir /home/nikhil/jukedrummer/output --sample_iters 5  

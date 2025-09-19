@@ -45,6 +45,21 @@ def getRNNembedding(rnn, audio_fea, device, head = 'mix'):
 
 
 def time2frame4beat(beat_est, ratio, hop_length=256, sr=44100):
+    '''
+    Converts beat times and values to a fixed-length frame array.
+
+    Args:
+        beat_est (np.ndarray): Array of shape (N, 2), where N is the number of beats. First column is beat times (in seconds), second column is beat values.
+        ratio (int): Downsampling ratio for the output frame array.
+        hop_length (int, optional): Hop length for frame calculation. Default is 256.
+        sr (int, optional): Sample rate. Default is 44100.
+
+    Returns:
+        np.ndarray: Array of shape (4096 // ratio,) where each index corresponding to a beat time is set to the beat value, others are zero.
+
+    Example:
+        If beat_est = [[0.5, 1], [1.0, 2]], ratio=4, the result will be a zero array of length 1024 with nonzero values at indices corresponding to the times 0.5s and 1.0s.
+    '''
     times = beat_est[:,0]
     result = np.zeros(4096 // ratio)
     idxs = librosa.time_to_frames(times, sr=sr, hop_length=hop_length*ratio,)
