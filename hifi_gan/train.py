@@ -16,7 +16,7 @@ from env import AttrDict, build_env
 from meldataset import MelDataset, mel_spectrogram, get_dataset_filelist
 from models import Generator, MultiPeriodDiscriminator, MultiScaleDiscriminator, feature_loss, generator_loss,\
     discriminator_loss
-from utils import plot_spectrogram, scan_checkpoint, load_checkpoint, save_checkpoint
+from utils import plot_spectrogram, scan_checkpoint, load_checkpoint, save_checkpoint, create_splits
 
 torch.backends.cudnn.benchmark = True
 
@@ -228,25 +228,27 @@ def train(rank, a, h):
 
 def main():
     print('Initializing Training Process..')
+    
 
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--group_name', default=None)
-    parser.add_argument('--input_wavs_dir', default='LJSpeech-1.1/wavs')
-    parser.add_argument('--input_mels_dir', default='ft_dataset')
-    parser.add_argument('--input_training_file', default='LJSpeech-1.1/training.txt')
-    parser.add_argument('--input_validation_file', default='LJSpeech-1.1/validation.txt')
-    parser.add_argument('--checkpoint_path', default='cp_hifigan')
-    parser.add_argument('--config', default='')
+    parser.add_argument('--input_wavs_dir', default='/home/nikhil/jukedrummer/hifi_gan/LJSpeech-1.1/wavs')
+    parser.add_argument('--input_mels_dir', default='/home/nikhil/jukedrummer/hifi_gan/ft_dataset')
+    parser.add_argument('--input_training_file', default='/home/nikhil/jukedrummer/hifi_gan/LJSpeech-1.1/training.txt')
+    parser.add_argument('--input_validation_file', default='/home/nikhil/jukedrummer/hifi_gan/LJSpeech-1.1/validation.txt')
+    parser.add_argument('--checkpoint_path', default='/home/nikhil/jukedrummer/hifi_gan/cp_hifigan_pansori')
+    parser.add_argument('--config', default='/home/nikhil/jukedrummer/hifi_gan/config_v1.json')
     parser.add_argument('--training_epochs', default=3100, type=int)
     parser.add_argument('--stdout_interval', default=5, type=int)
     parser.add_argument('--checkpoint_interval', default=5000, type=int)
     parser.add_argument('--summary_interval', default=100, type=int)
     parser.add_argument('--validation_interval', default=1000, type=int)
     parser.add_argument('--fine_tuning', default=False, type=bool)
-    parser.add_argument('--cuda', default=0, type=int)
+    parser.add_argument('--cuda', default=1, type=int)
 
     a = parser.parse_args()
+    create_splits('/home/nikhil/jukedrummer/hifi_gan/LJSpeech-1.1', split_ratio=0.90)
 
     with open(a.config) as f:
         data = f.read()

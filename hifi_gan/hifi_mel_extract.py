@@ -69,8 +69,10 @@ if __name__ == "__main__":
     # parser.add_argument('--cuda', type=int, default=0)
     # args = parser.parse_args()
 
-    clip_dir =  f'/home/lego/NAS189/home/codify/data/drums/hop_audio_24s/others/'  #out_dir from step1
-    base_out_dir = f'/home/lego/NAS189/home/codify/data/drums/feature/mel/hifi/others/'
+    # clip_dir =  f'/home/lego/NAS189/home/codify/data/drums/hop_audio_24s/others/'  #out_dir from step1
+    clip_dir =  f'/home/nikhil/jukedrummer/data/audio/target/'  #out_dir from step1
+
+    base_out_dir = f'/home/nikhil/jukedrummer/data/audio/target_hifi_mel/'
     os.makedirs(base_out_dir, exist_ok=True)
 
     n_fft = 1024

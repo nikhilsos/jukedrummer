@@ -14,7 +14,7 @@ from dataset import End2EndWrapper
 from model.vocoder import HiFiVocoder
 from hparams import MEL
 from utils.functions import get_vqvae
-from utils.pansori_beats import BeatInfoExtractor
+from utils.beats import BeatInfoExtractor 
 from utils.melspec import Audio2Mel
 
 def get_raw_data(input_dir):
@@ -64,9 +64,9 @@ if __name__ == '__main__':
     )
 
     lm = JukeTransformer(hps).to(device)
-    lm_ckpt = torch.load(os.path.join(hps.ckpt_dir, f'exp{exp_idx}_pans.pkl'), map_location=lambda storage, loc: storage)
-    print("lm_ckpt['model']", '\n'.join(lm_ckpt['model'].keys()))
-    print("lm", '\n'.join(lm.state_dict().keys()))
+    lm_ckpt = torch.load(os.path.join(hps.ckpt_dir, f'exp{exp_idx}.pkl'), map_location=lambda storage, loc: storage)
+    # print("lm_ckpt['model']", '\n'.join(lm_ckpt['model'].keys()))
+    # print("lm", '\n'.join(lm.state_dict().keys()))
     lm.load_state_dict(lm_ckpt['model'])
 
     

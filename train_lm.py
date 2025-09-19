@@ -118,8 +118,8 @@ def load_id_splits(hps):
 
 def get_dataloaders(hps, binfo_dim, lm_T):
     tr_ids, va_ids = load_id_splits(hps)
-    print(f"number of training data: {len(tr_ids)}")
-    print(f"number of validation data: {len(va_ids)}")
+    # print(f"number of training data: {len(tr_ids)}")
+    # print(f"number of validation data: {len(va_ids)}")
 
     tr_dataset = BeatInfoPairedDataset(tr_ids, hps)
     va_dataset = BeatInfoPairedDataset(va_ids, hps)

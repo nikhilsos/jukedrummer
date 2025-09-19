@@ -56,3 +56,24 @@ def scan_checkpoint(cp_dir, prefix):
         return None
     return sorted(cp_list)[-1]
 
+
+def create_splits(directory, split_ratio=0.1):
+    '''
+    split according to the given ratio and put filenames in training.txt and validation.txt
+    '''
+    fns =  os.listdir(f'{directory}/wavs')
+    fns = [f for f in fns if f.endswith('.wav')]
+    fns = sorted(fns)
+    num_val = int(len(fns)*split_ratio)
+    num_tr = len(fns) - num_val
+    tr_fns = fns[:num_tr]
+    val_fns = fns[num_tr:]
+    with open(f'{directory}/training.txt', 'w') as f:
+        for fn in tr_fns:
+            f.write(f'{fn}\n')
+    with open(f'{directory}/validation.txt', 'w') as f:
+        for fn in val_fns:
+            f.write(f'{fn}\n')
+    print(f'create {len(tr_fns)} training data and {len(val_fns)} validation data')
+
+    

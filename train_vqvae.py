@@ -168,7 +168,7 @@ def main():
     mean, std = mean.to(device), std.to(device)
 
     # Early stopping parameters
-    patience = 10
+    patience = 25
     best_val_loss = float('inf')
     counter = 0
 
@@ -231,19 +231,42 @@ def main():
         val_loss /= len(va_loader)
         print(f"Epoch {epoch}, Validation Loss: {val_loss}")
         os.makedirs('checkpoints', exist_ok=True)
+
+        model_dict ={
+            'model': model.state_dict(),
+            'mean': mean.cpu().numpy(),
+            'std': std.cpu().numpy(),
+            'hps': dict(hps),
+        }
         # Check for improvement
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             counter = 0  # Reset counter if improvement
             print("Validation loss improved, saving best model...")
-            torch.save(model.state_dict(), f'checkpoints/best_model{args.data_type}.pth')  # Save the best model
+            torch.save(
+            model_dict,
+            os.path.join(hps.ckpt_dir, f'{hps.name}_{args.data_type}.pkl')
+        )
+                         # Save the best model
         else:
             counter += 1  # Increment counter if no improvement
             print(f"No improvement. Early stopping counter: {counter}/{patience}")
 
         # Save the current model inside checkpoints directory
-        torch.save(model.state_dict(), f'checkpoints/current_model_epoch_{epoch}_{args.data_type}.pth')
-      
+
+        
+        torch.save(
+            model_dict,
+            os.path.join(hps.ckpt_dir, f'vqvae_checkpoints/current_model_epoch_{epoch}_{args.data_type}.pkl')
+        )
+
+        # remove older checkpoints to save space
+        for f in os.listdir(os.path.join(hps.ckpt_dir, 'vqvae_checkpoints')):
+            if f.startswith('current_model_epoch_') and f.endswith(f'_{args.data_type}.pkl'):
+                epoch_num = int(f.split('_')[3])
+                if epoch_num < epoch - 1:  # Keep only the last two epochs
+                    os.remove(os.path.join(hps.ckpt_dir, 'vqvae_checkpoints', f))
+                    print(f"Removed old checkpoint: {f}")
 
         # Early stopping condition
         if counter >= patience:

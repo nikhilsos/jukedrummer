@@ -32,7 +32,7 @@ def main(args):
     subset_division(mel_dir, args.dataset_pkl_path)
     
     # 4. Beat Information Extraction
-    # beat_info_extraction(fns, 'low', audio_dir, beat_dir, args.cuda)
+    beat_info_extraction(fns, 'low', audio_dir, beat_dir, args.cuda)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

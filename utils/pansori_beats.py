@@ -4,6 +4,9 @@ import torch
 import numpy as np
 import tqdm 
 from model.downbeat_model import BeatNet
+from hparams import setup_lm_hparams, MODEL_LIST
+
+hps = setup_lm_hparams(MODEL_LIST[1])
 
 def _load_checkpoint_(model: torch.nn.Module, checkpoint_file: str | None):
     if checkpoint_file is None:
@@ -56,7 +59,7 @@ class BeatNetEmbedder:
         return embedding.detach().cpu().numpy()
         
 
-def BeatInfoExtractor(spectrogram, checkpoint_file=None, rp_mode=False):
+def BeatInfoExtractor(spectrogram, checkpoint_file=None, rp_mode=False, binfo_type = hps.binfo_type,device=None):
     """
     Kept for compatibility with your code. If rp_mode=True, returns (activations, rp).
     Otherwise returns activations only.

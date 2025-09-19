@@ -135,7 +135,7 @@ class ConditionalAutoregressive2D(nn.Module):
             
 
         N, D = x.shape
-        print(f"x shape: {x.shape}")
+        # print(f"x shape: {x.shape}")
         assert isinstance(x, torch.cuda.LongTensor)
         assert (0 <= x).all() 
         assert (x < self.bins).all()
@@ -184,7 +184,7 @@ class ConditionalAutoregressive2D(nn.Module):
             x = x[:, :1024]
         elif x.shape[1] < 1024:
             x = F.pad(x, (0, 0, 0, 1024 - x.shape[1]))
-        print(f"x shape: {x.shape}")
+        # print(f"x shape: {x.shape}")
         x = self.x_data_dropout(x.unsqueeze(2)).squeeze(2) + self.pos_emb_dropout(self.pos_emb()) + x_cond # Pos emb + dropout + x_cond
 
         x = self.transformer(x, encoder_kv=encoder_kv, fp16=fp16) # Transformer
