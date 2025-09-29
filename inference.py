@@ -71,7 +71,7 @@ if __name__ == '__main__':
 
     
     vocoder = HiFiVocoder(
-        ckpt_path=os.path.join(hps.ckpt_dir, 'hifigan/generator'), 
+        ckpt_path=os.path.join(hps.ckpt_dir, 'hifigan/genertor'), 
         output_dir=output_dir, 
         device=device
     )

@@ -61,7 +61,7 @@ def create_splits(directory, split_ratio=0.1):
     '''
     split according to the given ratio and put filenames in training.txt and validation.txt
     '''
-    fns =  os.listdir(f'{directory}/wavs')
+    fns =  os.listdir(f'{directory}')
     fns = [f for f in fns if f.endswith('.wav')]
     fns = sorted(fns)
     num_val = int(len(fns)*split_ratio)
@@ -76,4 +76,4 @@ def create_splits(directory, split_ratio=0.1):
             f.write(f'{fn}\n')
     print(f'create {len(tr_fns)} training data and {len(val_fns)} validation data')
 
-    
+

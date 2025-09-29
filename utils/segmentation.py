@@ -48,6 +48,13 @@ def get_downbeats_pansori(fn, checkpoint_file=None, downbeats=False, root = None
 
 
 def segmentation(fn, downbeats, length, audio_dir):
+    """
+    Segment audio into fixed-length chunks.
+
+    NOTE: Added padding for segments shorter than target length to ensure consistent
+    mel-spectrogram dimensions. This fixes tensor size mismatch errors during training.
+    To revert: Comment out the padding sections marked with === FIX === markers.
+    """
     others, sr = librosa.load(os.path.join(audio_dir, 'others', fn), sr=44100)
     drums, sr = librosa.load(os.path.join(audio_dir, 'target', fn), sr=44100)
     if not len(others) == len(drums):
@@ -60,6 +67,14 @@ def segmentation(fn, downbeats, length, audio_dir):
         while(count*length+length < len(others)):
             others_s = others[count*length:count*length+length]
             drums_s = drums[count*length:count*length+length]
+
+            # === FIX: Ensure consistent segment lengths ===
+            # Pad segments that are shorter than target length to prevent variable mel-spectrogram lengths
+            if len(others_s) < length:
+                others_s = pad_to(others_s, length)
+                drums_s = pad_to(drums_s, length)
+            # === END FIX ===
+
             sf.write(os.path.join('data/segment_audio', 'others', f'{fn.split(".")[0]}_{count}.wav'), others_s, 44100)
             sf.write(os.path.join('data/segment_audio', 'target',  f'{fn.split(".")[0]}_{count}.wav'), drums_s, 44100)
             count += 1
@@ -79,19 +94,27 @@ def segmentation(fn, downbeats, length, audio_dir):
                 start = round(start * 44100 )
                 drums_s = drums[start:start+length]
                 others_s = others[start:start+length]
+
+                # === FIX: Ensure consistent segment lengths ===
+                # Pad segments that are shorter than target length to prevent variable mel-spectrogram lengths
+                if len(drums_s) < length:
+                    drums_s = pad_to(drums_s, length)
+                    others_s = pad_to(others_s, length)
+                # === END FIX ===
+
                 # handle wav and wav
 
                 if fn.endswith('.wav'):
                     sf.write(os.path.join('data/segment_audio', 'others', f'{fn.split(".")[0]}_{count}.wav'), others_s, 44100)
                     sf.write(os.path.join('data/segment_audio', 'target',  f'{fn.split(".")[0]}_{count}.wav'), drums_s, 44100)
-                elif fn.endswith('.mp3'): 
+                elif fn.endswith('.mp3'):
                     raise NotImplementedError("MP3 format is not supported yet.")
-                    
-                    
+
+
                 else:
                     raise ValueError(f"Unsupported file format: {fn}")
 
-                
+
                 start = cur
                 count += 1
 

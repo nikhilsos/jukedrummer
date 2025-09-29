@@ -6,7 +6,7 @@ import argparse
 import pickle
 import random
 
-from segmentation import inference_pansori as data_segmentation
+from segmentation import inference as data_segmentation
 from melspec import inference as melspec_extraction
 from subset_division import inference as subset_division
 from beats import inference as beat_info_extraction
@@ -22,11 +22,11 @@ def main(args):
     fns = os.listdir(os.path.join(audio_dir, 'target'))
     fns = [f for f in fns if f.endswith('.wav')]
 
-    # # 1. Segmentation by either downbeats or hop window
-    # data_segmentation(fns, args.segment_by_downbeats, length, audio_dir)
-    
-    # # 2. Extract Mel spectrograms from segemented audio waves
-    # melspec_extraction(fns, audio_dir, mel_dir)
+    # 1. Segmentation by either downbeats or hop window
+    data_segmentation(fns, args.segment_by_downbeats, length, audio_dir)
+
+    # 2. Extract Mel spectrograms from segemented audio waves
+    melspec_extraction(fns, args.segement_audio_dir, mel_dir)
     
     # 3. Divide dataset into train & valid subset
     subset_division(mel_dir, args.dataset_pkl_path)
@@ -43,7 +43,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--cuda', type=int, help='the id of cuda want to use')
     parser.add_argument('--dataset_pkl_path', type=str, help='the path of final dataset .pkl file', default='data/dataset.pkl')
-    parser.add_argument('--segment_by_downbeats', type=bool, default=True, help='determine whether the segement would be made according to downbeats or not')
+    parser.add_argument('--segment_by_downbeats', type=bool, default=False, help='determine whether the segement would be made according to downbeats or not')
     args = parser.parse_args()
     main(args)
 

@@ -81,6 +81,19 @@ class MelDataset(Dataset):
         if not fname.endswith('.npy'):
             fname = fname + '.npy'
         item = np.load(os.path.join(self.root, 'mel', self.data_type, fname))
+
+        # === FIX: Ensure consistent tensor shapes ===
+        # Pad or truncate to prevent tensor size mismatch during training
+        target_frames = 5167  # Based on the error: 5167 vs 5164
+        if item.shape[1] < target_frames:
+            # Pad with zeros if shorter
+            pad_width = target_frames - item.shape[1]
+            item = np.pad(item, ((0, 0), (0, pad_width)), mode='constant')
+        elif item.shape[1] > target_frames:
+            # Truncate if longer
+            item = item[:, :target_frames]
+        # === END FIX ===
+
         return item
 
     def __len__(self):

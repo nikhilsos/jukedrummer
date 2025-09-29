@@ -34,9 +34,9 @@ def train(rank, a, h):
     msd = MultiScaleDiscriminator().to(device)
 
     if rank == 0:
-        print(generator)
+        # print(generator)
         os.makedirs(a.checkpoint_path, exist_ok=True)
-        print("checkpoints directory : ", a.checkpoint_path)
+        # print("checkpoints directory : ", a.checkpoint_path)
 
     if os.path.isdir(a.checkpoint_path):
         cp_g = scan_checkpoint(a.checkpoint_path, 'g_')
@@ -44,7 +44,7 @@ def train(rank, a, h):
 
     steps = 0
     if cp_g is None or cp_do is None:
-        print('train from beginning')
+        # print('train from beginning')
         state_dict_do = None
         last_epoch = -1
     else:
@@ -198,19 +198,33 @@ def train(rank, a, h):
                             y_g_hat_mel = mel_spectrogram(y_g_hat.squeeze(1), h.n_fft, h.num_mels, h.sampling_rate,
                                                           h.hop_size, h.win_size,
                                                           h.fmin, h.fmax_for_loss)
+                            
+                            
+
+                            # check size of tensors before computing loss
+                            
+                            
+                            # handle shape mismatches
+                            min_len = min(y_mel.shape[-1], y_g_hat_mel.shape[-1])
+                            y_mel = y_mel[:,:, :min_len]
+                            y_g_hat_mel = y_g_hat_mel[:,:, :min_len]
+                            
+                            if y_mel.size() != y_g_hat_mel.size():
+                                raise ValueError(f"Tensor size mismatch during validation,y_mel {y_mel.size()}, y_g_hat_mel {y_g_hat_mel.size()}")
+
                             val_err_tot += F.l1_loss(y_mel, y_g_hat_mel).item()
 
-                            if j <= 4:
-                                if steps == 0:
-                                    sw.add_audio('gt/y_{}'.format(j), y[0], steps, h.sampling_rate)
-                                    sw.add_figure('gt/y_spec_{}'.format(j), plot_spectrogram(x[0]), steps)
+                            # if j <= 4:
+                            #     if steps == 0:
+                            #         sw.add_audio('gt/y_{}'.format(j), y[0], steps, h.sampling_rate)
+                            #         sw.add_figure('gt/y_spec_{}'.format(j), plot_spectrogram(x[0]), steps)
 
-                                sw.add_audio('generated/y_hat_{}'.format(j), y_g_hat[0], steps, h.sampling_rate)
-                                y_hat_spec = mel_spectrogram(y_g_hat.squeeze(1), h.n_fft, h.num_mels,
-                                                             h.sampling_rate, h.hop_size, h.win_size,
-                                                             h.fmin, h.fmax)
-                                sw.add_figure('generated/y_hat_spec_{}'.format(j),
-                                              plot_spectrogram(y_hat_spec.squeeze(0).cpu().numpy()), steps)
+                            #     sw.add_audio('generated/y_hat_{}'.format(j), y_g_hat[0], steps, h.sampling_rate)
+                            #     y_hat_spec = mel_spectrogram(y_g_hat.squeeze(1), h.n_fft, h.num_mels,
+                            #                                  h.sampling_rate, h.hop_size, h.win_size,
+                            #                                  h.fmin, h.fmax)
+                            #     sw.add_figure('generated/y_hat_spec_{}'.format(j),
+                            #                   plot_spectrogram(y_hat_spec.squeeze(0).cpu().numpy()), steps)
 
                         val_err = val_err_tot / (j+1)
                         sw.add_scalar("validation/mel_spec_error", val_err, steps)
@@ -233,10 +247,10 @@ def main():
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--group_name', default=None)
-    parser.add_argument('--input_wavs_dir', default='/home/nikhil/jukedrummer/hifi_gan/LJSpeech-1.1/wavs')
-    parser.add_argument('--input_mels_dir', default='/home/nikhil/jukedrummer/hifi_gan/ft_dataset')
-    parser.add_argument('--input_training_file', default='/home/nikhil/jukedrummer/hifi_gan/LJSpeech-1.1/training.txt')
-    parser.add_argument('--input_validation_file', default='/home/nikhil/jukedrummer/hifi_gan/LJSpeech-1.1/validation.txt')
+    parser.add_argument('--input_wavs_dir', default='/home/nikhil/jukedrummer/data/segment_audio/target')
+    parser.add_argument('--input_mels_dir', default='/home/nikhil/jukedrummer/data/audio/reconstructed_mel_recon_vq1')
+    parser.add_argument('--input_training_file', default='/home/nikhil/jukedrummer/data/segment_audio/target/training.txt')
+    parser.add_argument('--input_validation_file', default='/home/nikhil/jukedrummer/data/segment_audio/target/validation.txt')
     parser.add_argument('--checkpoint_path', default='/home/nikhil/jukedrummer/hifi_gan/cp_hifigan_pansori')
     parser.add_argument('--config', default='/home/nikhil/jukedrummer/hifi_gan/config_v1.json')
     parser.add_argument('--training_epochs', default=3100, type=int)
@@ -248,7 +262,9 @@ def main():
     parser.add_argument('--cuda', default=1, type=int)
 
     a = parser.parse_args()
-    create_splits('/home/nikhil/jukedrummer/hifi_gan/LJSpeech-1.1', split_ratio=0.90)
+    # create_splits('/home/nikhil/jukedrummer/data/audio/target', split_ratio=0.90)
+    
+
 
     with open(a.config) as f:
         data = f.read()
@@ -271,6 +287,16 @@ def main():
     else:
         train(0, a, h)
 
+def custom_collate(batch):
+    # batch is a list of tuples (x, y, binfo, y_mel)
+    xs, ys, binfos, y_mels = zip(*batch)
+    xs = torch.stack(xs, 0)
+    ys = torch.stack(ys, 0)
+    y_mels = torch.stack(y_mels, 0)
+    return xs, ys, binfos, y_mels
 
 if __name__ == '__main__':
+    create_splits('/home/nikhil/jukedrummer/hifi_gan/LJSpeech-1.1', split_ratio=0.90)
+    print('splits created')
     main()
+

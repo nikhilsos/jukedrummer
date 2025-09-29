@@ -71,6 +71,9 @@ def get_dataset(hps, data_type):
     print(f"Train dataset size: {len(tr_dataset)}, Validation dataset size: {len(va_dataset)}")
     
     def custom_collate(batch):
+        '''
+         Pads or truncates each mel spectrogram in the batch to a fixed width of 8192 frames.
+        '''
         max_width = 8192
         processed = []
 

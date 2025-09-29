@@ -69,3 +69,8 @@ def wav2mel(data, audio2mel):
     if np.any(np.isnan(mel)) or np.sum(np.mean(mel, axis=0, keepdims=False) < -8) > mel.shape[1] // 2:
         return None
     return mel
+
+
+# added later
+
+# function to 
