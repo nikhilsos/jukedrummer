@@ -91,5 +91,7 @@ def main():
 
 
 if __name__ == '__main__':
+    import sys
+    sys.argv = ['inference_e2e.py', '--input_mels_dir', '/home/nikhil/jukedrummer/output/exp3/', '--output_dir', '/home/nikhil/jukedrummer/output', '--checkpoint_file', '/home/nikhil/jukedrummer/hifi_gan/cp_hifigan/g_00060000', '--cuda', '0']
     main()
 

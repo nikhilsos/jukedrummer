@@ -223,69 +223,63 @@ def main():
                             'reconstruct': wandb.Image(r_mel_img)
                         })
 
-
-                        if is_wandb:
-                            wandb.log({
-                                'real': wandb.Image(mel_img),
-                                'reconstruct': wandb.Image(r_mel_img)
-                            })
-
         # Average validation loss
         val_loss /= len(va_loader)
         print(f"Epoch {epoch}, Validation Loss: {val_loss}")
         os.makedirs('checkpoints', exist_ok=True)
 
-        model_dict ={
+        # --- Save checkpoints safely ---
+        checkpoint_dir = os.path.join(hps.ckpt_dir, 'vqvae_checkpoints')
+        os.makedirs(checkpoint_dir, exist_ok=True)
+
+        model_dict = {
             'model': model.state_dict(),
             'mean': mean.cpu().numpy(),
             'std': std.cpu().numpy(),
             'hps': dict(hps),
         }
-        # Check for improvement
+
+        # Save current
+        current_path = os.path.join(checkpoint_dir, f'current_model_epoch_{epoch}_{args.data_type}.pkl')
+        torch.save(model_dict, current_path)
+
+        # Save best if improved
         if val_loss < best_val_loss:
             best_val_loss = val_loss
-            counter = 0  # Reset counter if improvement
-            print("Validation loss improved, saving best model...")
-            torch.save(
-            model_dict,
-            os.path.join(hps.ckpt_dir, f'{hps.name}_{args.data_type}.pkl')
-        )
-                         # Save the best model
+            counter = 0
+            best_path = os.path.join(checkpoint_dir, f'best_model_{args.data_type}.pkl')
+            torch.save(model_dict, best_path)
+            print("Validation loss improved — saved best model.")
         else:
-            counter += 1  # Increment counter if no improvement
+            counter += 1
             print(f"No improvement. Early stopping counter: {counter}/{patience}")
 
-        # Save the current model inside checkpoints directory
+    # Clean up old checkpoints (keep last 3)
+    all_ckpts = sorted(
+        [f for f in os.listdir(checkpoint_dir) if f.startswith('current_model_epoch_')],
+        key=lambda x: int(x.split('_')[3])
+    )
+    for old in all_ckpts[:-3]:
+        try:
+            os.remove(os.path.join(checkpoint_dir, old))
+        except OSError:
+            pass
 
-        
-        torch.save(
-            model_dict,
-            os.path.join(hps.ckpt_dir, f'vqvae_checkpoints/current_model_epoch_{epoch}_{args.data_type}.pkl')
-        )
+            # Early stopping condition
+            if counter >= patience:
+                print("Early stopping triggered.")
+                break
 
-        # remove older checkpoints to save space
-        for f in os.listdir(os.path.join(hps.ckpt_dir, 'vqvae_checkpoints')):
-            if f.startswith('current_model_epoch_') and f.endswith(f'_{args.data_type}.pkl'):
-                epoch_num = int(f.split('_')[3])
-                if epoch_num < epoch - 1:  # Keep only the last two epochs
-                    os.remove(os.path.join(hps.ckpt_dir, 'vqvae_checkpoints', f))
-                    print(f"Removed old checkpoint: {f}")
-
-        # Early stopping condition
-        if counter >= patience:
-            print("Early stopping triggered.")
-            break
-
-        print(f"Epoch {epoch} Summary:")
-        print(summary)
-        if 'metric' in locals():
-            print(f"Usage: {metric['usage'].item()} | Used Curr: {metric['used_curr'].item()}")
-        else:
-            print("Metric not available for this epoch.")
+            print(f"Epoch {epoch} Summary:")
+            print(summary)
+            if 'metric' in locals():
+                print(f"Usage: {metric['usage'].item()} | Used Curr: {metric['used_curr'].item()}")
+            else:
+                print("Metric not available for this epoch.")
 
 
-        if is_wandb:
-            wandb.log(summary, step=epoch)
+            if is_wandb:
+                wandb.log(summary, step=epoch)
 
 
 

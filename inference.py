@@ -20,6 +20,17 @@ from utils.melspec import Audio2Mel
 def get_raw_data(input_dir):
     fns =  os.listdir(input_dir)
     fns = [f for f in fns if f.endswith('.wav')]
+import matplotlib.pyplot as plt
+
+import librosa.display
+def save_spectrogram_visuals(mel, out_path):
+    plt.figure(figsize=(10, 4))
+    librosa.display.specshow(mel, sr=44100, hop_length=256, x_axis='time', y_axis='mel')
+    plt.colorbar(format='%+2.0f dB')
+    plt.title('Mel-frequency spectrogram')
+    plt.tight_layout()
+    plt.savefig(out_path)
+    plt.close() 
     
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -64,20 +75,41 @@ if __name__ == '__main__':
     )
 
     lm = JukeTransformer(hps).to(device)
-    lm_ckpt = torch.load(os.path.join(hps.ckpt_dir, f'exp{exp_idx}.pkl'), map_location=lambda storage, loc: storage)
+    lm_ckpt = torch.load(os.path.join(hps.ckpt_dir, f'exp{exp_idx}_best.pkl'), map_location=lambda storage, loc: storage)
     # print("lm_ckpt['model']", '\n'.join(lm_ckpt['model'].keys()))
     # print("lm", '\n'.join(lm.state_dict().keys()))
     lm.load_state_dict(lm_ckpt['model'])
 
     
+    # vocoder = HiFiVocoder(
+    #     ckpt_path=os.path.join(hps.ckpt_dir, 'vocoder/generator'), 
+    #     output_dir=output_dir, 
+    #     device=device
+    # )
+
+    # vocoder = HiFiVocoder(
+    #     ckpt_path='/home/nikhil/jukedrummer/ckpt_o/vocoder/generator_o', 
+    #     output_dir=output_dir, 
+    #     device=device
+    # )
+
     vocoder = HiFiVocoder(
-        ckpt_path=os.path.join(hps.ckpt_dir, 'hifigan/genertor'), 
+        ckpt_path='/home/nikhil/jukedrummer/hifi_gan/cp_hifigan/g_00055000', 
         output_dir=output_dir, 
         device=device
     )
+
+    
+
+    # vocoder = HiFiVocoder(
+    #     ckpt_path='/home/nikhil/jukedrummer/hifi_gan/cp_hifigan_pansori/pansori_generator', 
+    #     output_dir=output_dir, 
+    #     device=device
+    # )
     
     beat_extractor = BeatInfoExtractor(binfo_type=hps.binfo_type, device=device)
     mel_extractor = Audio2Mel(MEL)
+  
     
     dataset = End2EndWrapper(
         args.input_dir, 
@@ -93,11 +125,20 @@ if __name__ == '__main__':
         for i in tqdm(range(len(dataset))):
             otz, binfo, fn = dataset[i]
             with torch.no_grad():
+
                 lm.eval()
                 gen_mel = lm.sample(n_samples=hps.batch_size, otz=otz, binfo=binfo, vqvae=target_vqvae, temp=args.temp, top_p=args.top_p)
-                gen_mel = gen_mel * target_std + target_mean 
+                # save first 5 mels, reusable
+                # if  i < 5:
+                #     np.save(output_dir, gen_mel.detach().cpu().numpy())
+                
+                save_spectrogram_visuals(gen_mel[0].cpu().numpy(), os.path.join(output_dir, f'{j}_'+fn.replace('.wav', '_mel.png')))
+                gen_mel = gen_mel 
+                #* target_std + target_mean  
                 gen_wavs = vocoder(gen_mel)
             orig, _ = sf.read(os.path.join(args.input_dir, fn),always_2d=True)
+            # save spectrogram
+
             sf.write(os.path.join(output_dir, f'{j}_'+fn.replace('.npy', '.wav')), gen_wavs[:,None], 44100)
 
     # real_wavs = real_wav.detach().cpu().numpy()

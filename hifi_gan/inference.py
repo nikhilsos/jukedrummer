@@ -9,6 +9,7 @@ from scipy.io.wavfile import write
 from env import AttrDict
 from meldataset import mel_spectrogram, MAX_WAV_VALUE, load_wav
 from models import Generator
+import numpy as np
 
 h = None
 device = None
@@ -33,6 +34,13 @@ def scan_checkpoint(cp_dir, prefix):
         return ''
     return sorted(cp_list)[-1]
 
+# load mel spec directly instead of converting
+def load_mel_from_disk(mel_path):
+    mel = torch.from_numpy(np.load(mel_path))
+    return mel.unsqueeze(0)  # (1, n_mel, T)
+
+
+
 
 def inference(a):
     generator = Generator(h).to(device)
@@ -45,6 +53,8 @@ def inference(a):
         filelist = os.listdir(a.input_wavs_dir)
     else:
         filelist = os.listdir(a.input_wavs_dir)[:10]
+
+
 
     os.makedirs(a.output_dir, exist_ok=True)
 
@@ -70,6 +80,8 @@ def inference(a):
 
 def main():
     print('Initializing Inference Process..')
+
+    
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--input_wavs_dir', default='test_files')
@@ -99,5 +111,8 @@ def main():
 
 
 if __name__ == '__main__':
+    # main()
+    # test case to run 
+    import sys
+    sys.argv = ['inference.py', '--input_wavs_dir', '/home/nikhil/jukedrummer/data_test/audio/target/', '--output_dir', '/home/nikhil/jukedrummer/output', '--checkpoint_file', '/home/nikhil/jukedrummer/hifi_gan/cp_hifigan_pansori/pansori_generator', '--cuda', '0']
     main()
-

@@ -6,8 +6,8 @@ import argparse
 import pickle
 import random
 
-from segmentation import inference as data_segmentation
-from melspec import inference as melspec_extraction
+from segmentation import inference_pansori as data_segmentation
+from utils.melspec import inference as melspec_extraction
 from subset_division import inference as subset_division
 from beats import inference as beat_info_extraction
 
@@ -40,10 +40,9 @@ if __name__ == '__main__':
     parser.add_argument('--segement_audio_dir', type=str, help='directory path of segemented audio', default='data/segment_audio')
     parser.add_argument('--mel_dir', type=str, help='directory path of segemented audio', default='data/mel/target')
     parser.add_argument('--beat_dir', type=str, help='directory path of beat information', default='data/beats')
-
     parser.add_argument('--cuda', type=int, help='the id of cuda want to use')
     parser.add_argument('--dataset_pkl_path', type=str, help='the path of final dataset .pkl file', default='data/dataset.pkl')
-    parser.add_argument('--segment_by_downbeats', type=bool, default=False, help='determine whether the segement would be made according to downbeats or not')
+    parser.add_argument('--segment_by_downbeats', type=bool, default=True, help='determine whether the segement would be made according to downbeats or not')
     args = parser.parse_args()
     main(args)
 

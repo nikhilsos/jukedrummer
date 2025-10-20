@@ -41,21 +41,40 @@ def train(rank, a, h):
     if os.path.isdir(a.checkpoint_path):
         cp_g = scan_checkpoint(a.checkpoint_path, 'g_')
         cp_do = scan_checkpoint(a.checkpoint_path, 'do_')
+        # print type and values of cp_g and cp_do
+        print("cp_g type: ", type(cp_g), " cp_g value: ", cp_g)
+        print("cp_do type: ", type(cp_do), " cp_do value: ", cp_do)
 
     steps = 0
-    if cp_g is None or cp_do is None:
-        # print('train from beginning')
+    if cp_g is None and cp_do is None:
+        print('train from beginning')
+        state_dict_g = None
         state_dict_do = None
+        steps = 0
         last_epoch = -1
     else:
-        print('train from exsisting checkpoint')
-        state_dict_g = load_checkpoint(cp_g, device)
-        state_dict_do = load_checkpoint(cp_do, device)
-        generator.load_state_dict(state_dict_g['generator'])
-        mpd.load_state_dict(state_dict_do['mpd'])
-        msd.load_state_dict(state_dict_do['msd'])
-        steps = state_dict_do['steps'] + 1
-        last_epoch = state_dict_do['epoch']
+        print('train from existing checkpoint')
+        if cp_g is not None:
+            state_dict_g = load_checkpoint(cp_g, device)
+            generator.load_state_dict(state_dict_g['generator'])
+            print(f"Loaded generator from {cp_g}")
+        else:
+            print("No generator checkpoint found, starting generator fresh")
+            state_dict_g = None
+
+        if cp_do is not None:
+            state_dict_do = load_checkpoint(cp_do, device)
+            mpd.load_state_dict(state_dict_do['mpd'])
+            msd.load_state_dict(state_dict_do['msd'])
+            steps = state_dict_do['steps'] + 1
+            last_epoch = state_dict_do['epoch']
+            print(f"Loaded discriminator from {cp_do}")
+        else:
+            print("No discriminator checkpoint found, starting discriminator fresh")
+            state_dict_do = None
+            steps = 0
+            last_epoch = -1
+
 
     if h.num_gpus > 1:
         generator = DistributedDataParallel(generator, device_ids=[rank]).to(device)
@@ -262,7 +281,7 @@ def main():
     parser.add_argument('--cuda', default=1, type=int)
 
     a = parser.parse_args()
-    # create_splits('/home/nikhil/jukedrummer/data/audio/target', split_ratio=0.90)
+    # create_splits(a.input_wavs_dir, split_ratio=0.90)
     
 
 
@@ -296,7 +315,7 @@ def custom_collate(batch):
     return xs, ys, binfos, y_mels
 
 if __name__ == '__main__':
-    create_splits('/home/nikhil/jukedrummer/hifi_gan/LJSpeech-1.1', split_ratio=0.90)
-    print('splits created')
+    # create_splits('/home/nikhil/jukedrummer/hifi_gan/LJSpeech-1.1/wavs/', split_ratio=0.90)
+    # print('splits created')
     main()
 

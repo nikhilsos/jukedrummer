@@ -54,6 +54,21 @@ def mel2token(data, vqvae, mean, std, device):
     x_l = x_l.squeeze(0).long().detach().cpu().numpy()
     return x_l
 
+
+def token2mel(data, vqvae, mean, std, device):
+    if isinstance(data, str):
+        t = np.load(data)
+    elif isinstance(data, np.ndarray):
+        t = data
+    if np.any(np.isnan(t)):
+        return None
+
+    with torch.no_grad():
+        t = torch.LongTensor(t).to(device)
+        m = vqvae.decode(t)
+    return m
+        
+
 def wav2mel(data, audio2mel):
     if isinstance(data, str):
         y, _ = librosa.load(data, sr = 44100)
