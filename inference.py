@@ -11,7 +11,8 @@ import time
 
 from model.LanguageModel import JukeTransformer
 from dataset import End2EndWrapper
-from model.vocoder import HiFiVocoder
+# from model.vocoder import HiFiVocoder
+from model.complete_vocoder import HiFiVocoder
 from hparams import MEL
 from utils.functions import get_vqvae
 from utils.beats import BeatInfoExtractor 

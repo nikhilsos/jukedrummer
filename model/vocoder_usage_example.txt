@@ -1,0 +1,47 @@
+"""
+Example of how to use the complete_vocoder.py in your inference.py
+Replace the existing vocoder initialization and call with this:
+"""
+
+from model.complete_vocoder import HiFiVocoder
+import torch
+
+# Replace this section in your inference.py:
+"""
+vocoder = HiFiVocoder(
+    ckpt_path='/home/nikhil/jukedrummer/hifi_gan/cp_hifigan/g_00055000',
+    output_dir=output_dir,
+    device=device
+)
+"""
+
+# With this:
+vocoder = HiFiVocoder(
+    ckpt_path='/home/nikhil/jukedrummer/hifi_gan/cp_hifigan/g_00055000',
+    output_dir=output_dir,
+    device=device,
+    config_path='src/HiFiGan_config.json'  # Use your config
+)
+
+# Replace this line:
+# gen_wavs = vocoder(gen_mel)
+
+# With this (for full-length processing):
+gen_wavs = vocoder(gen_mel, write_fname=f'{j}_{fn.replace(".wav", "")}')
+
+# Optional parameters for better quality:
+# gen_wavs = vocoder(
+#     gen_mel,
+#     write_fname=f'{j}_{fn.replace(".wav", "")}',
+#     overlap_frames=5,      # Overlap between chunks (in mel frames)
+#     crossfade=True         # Smooth transitions between chunks
+# )
+
+"""
+Key improvements:
+1. Automatically handles mel spectrograms longer than segment_size
+2. Processes in chunks and concatenates results
+3. Optional crossfading for smoother transitions
+4. Provides detailed logging of processing steps
+5. Maintains the same interface as your original vocoder
+"""

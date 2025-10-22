@@ -134,7 +134,9 @@ class JukeTransformer(nn.Module):
         return pred
     
     def make_juke_prior(self, args):
-        sequence_length = 4096 // np.prod(args.upsample_ratios)
+        # sequence_length = 4096 // np.prod(args.upsample_ratios)
+        sequence_length = 32768 // np.prod(args.upsample_ratios)
+
         hps = setup_hparams('small_sep_enc_dec_prior', dict())
         hps['prior_depth'] = args.enc_layers
         hps['n_ctx'] = sequence_length

@@ -121,7 +121,7 @@ def get_dataloaders(hps, binfo_dim, lm_T):
     # print(f"number of training data: {len(tr_ids)}")
     # print(f"number of validation data: {len(va_ids)}")
 
-    tr_dataset = BeatInfoPairedDataset(tr_ids, hps)
+    tr_dataset = BeatInfoPairdsssssssssssssssssssssssssssssssssssedDataset(tr_ids, hps)
     va_dataset = BeatInfoPairedDataset(va_ids, hps)
     if len(tr_dataset) == 0 or len(va_dataset) == 0:
         raise ValueError("Training or validation dataset is empty after instantiation.")

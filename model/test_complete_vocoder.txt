@@ -1,0 +1,54 @@
+#!/usr/bin/env python3
+"""
+Test script for the complete vocoder implementation
+Run this to verify the vocoder works with your setup
+"""
+
+import numpy as np
+import torch
+from complete_vocoder import HiFiVocoder
+
+def test_vocoder():
+    """Test the vocoder with a dummy mel spectrogram"""
+
+    # Initialize vocoder
+    vocoder = HiFiVocoder(
+        ckpt_path='/home/nikhil/jukedrummer/hifi_gan/cp_hifigan/g_00055000',
+        output_dir='output',
+        device='cpu',  # Use CPU for testing
+        config_path='src/HiFiGan_config.json'
+    )
+
+    print("=== Vocoder Test ===")
+    print(f"Expected frames per segment: {vocoder.get_max_mel_frames()}")
+    print(f"Expected duration per segment: {vocoder.get_expected_duration(vocoder.get_max_mel_frames()):.3f} seconds")
+
+    # Test 1: Short mel spectrogram (within segment size)
+    print("\n--- Test 1: Short mel spectrogram ---")
+    short_mel = torch.randn(80, 32)  # 32 frames (within segment size)
+    audio1 = vocoder(short_mel, write_fname='test_short')
+    print(f"Output shape: {audio1.shape}")
+    print(f"Expected duration: {vocoder.get_expected_duration(32):.3f}s")
+    print(f"Actual duration: {len(audio1) / vocoder.h.sampling_rate:.3f}s")
+
+    # Test 2: Long mel spectrogram (multiple segments)
+    print("\n--- Test 2: Long mel spectrogram ---")
+    long_mel = torch.randn(80, 200)  # 200 frames (multiple segments)
+    audio2 = vocoder(long_mel, write_fname='test_long')
+    print(f"Output shape: {audio2.shape}")
+    print(f"Expected duration: {vocoder.get_expected_duration(200):.3f}s")
+    print(f"Actual duration: {len(audio2) / vocoder.h.sampling_rate:.3f}s")
+
+    # Test 3: Very long mel spectrogram with crossfading
+    print("\n--- Test 3: Very long mel spectrogram with crossfading ---")
+    very_long_mel = torch.randn(80, 500)  # 500 frames
+    audio3 = vocoder(very_long_mel, write_fname='test_very_long', overlap_frames=5, crossfade=True)
+    print(f"Output shape: {audio3.shape}")
+    print(f"Expected duration: {vocoder.get_expected_duration(500):.3f}s")
+    print(f"Actual duration: {len(audio3) / vocoder.h.sampling_rate:.3f}s")
+
+    print("\n=== Test Complete ===")
+    print("Check the 'output' directory for generated audio files")
+
+if __name__ == '__main__':
+    test_vocoder()
