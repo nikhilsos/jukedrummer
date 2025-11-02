@@ -12,7 +12,7 @@ import time
 from model.LanguageModel import JukeTransformer
 from dataset import End2EndWrapper
 # from model.vocoder import HiFiVocoder
-from model.complete_vocoder import HiFiVocoder
+from model.vocoder import HiFiVocoder
 from hparams import MEL
 from utils.functions import get_vqvae
 from utils.beats import BeatInfoExtractor 
@@ -134,8 +134,7 @@ if __name__ == '__main__':
                 #     np.save(output_dir, gen_mel.detach().cpu().numpy())
                 
                 save_spectrogram_visuals(gen_mel[0].cpu().numpy(), os.path.join(output_dir, f'{j}_'+fn.replace('.wav', '_mel.png')))
-                gen_mel = gen_mel 
-                #* target_std + target_mean  
+                gen_mel = gen_mel * target_std + target_mean  
                 gen_wavs = vocoder(gen_mel)
             orig, _ = sf.read(os.path.join(args.input_dir, fn),always_2d=True)
             # save spectrogram

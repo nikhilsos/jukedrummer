@@ -69,7 +69,7 @@ class JukeTransformer(nn.Module):
         self.prime_state_ln = LayerNorm(args.d_model)
         self.binfo_type = args.binfo_type
         if self.binfo_type == 'low':
-            self.bact_state_proj = Conv1D(50, args.d_model) # changed from 50 to 1 for pansori beat
+            self.bact_state_proj = Conv1D(16, args.d_model) # changed from 50 to 1 for pansori beat
         elif self.binfo_type == 'mid':
             self.onset_emb = nn.Embedding(2, args.d_model)
         elif self.binfo_type == 'high':
@@ -134,8 +134,8 @@ class JukeTransformer(nn.Module):
         return pred
     
     def make_juke_prior(self, args):
-        # sequence_length = 4096 // np.prod(args.upsample_ratios)
-        sequence_length = 32768 // np.prod(args.upsample_ratios)
+        sequence_length = 4096 // np.prod(args.upsample_ratios)
+        # sequence_length = 32768 // np.prod(args.upsample_ratios)
 
         hps = setup_hparams('small_sep_enc_dec_prior', dict())
         hps['prior_depth'] = args.enc_layers

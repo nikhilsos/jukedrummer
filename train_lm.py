@@ -15,8 +15,6 @@ from dataset import *
 from jukebox.jukebox.train import get_optimizer
 from hparams import OPT, MODEL_LIST, setup_lm_hparams
 
-
-
 def get_dataset(hps):
     with open(os.path.join(hps.path, 'dataset.pkl'), 'rb') as f:
         dataset = pickle.load(f)
