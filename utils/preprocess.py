@@ -10,6 +10,11 @@ from segmentation import inference_pansori as data_segmentation
 from utils.melspec import inference as melspec_extraction
 from subset_division import inference as subset_division
 from pansori_beats import inference as beat_info_extraction
+import logging
+
+logging.basicConfig(filename='test.log', level=logging.DEBUG,
+                    format='%(asctime)s:%(levelname)s:%(message)s')
+
 
 
 def main(args):
@@ -18,21 +23,18 @@ def main(args):
     mel_dir = args.mel_dir
     beat_dir= args.beat_dir
 
-    length = 8192 * 8 * 4 * 4 # This variation is recommended to be fixed # doubled from 8192 -- default 
+    length = 16384 * 8 * 4 * 4 # This variation is recommended to be fixed
     fns = os.listdir(os.path.join(audio_dir, 'target'))
     fns = [f for f in fns if f.endswith('.wav')]
-
     # 1. Segmentation by either downbeats or hop window
-    data_segmentation(fns, args.segment_by_downbeats, length, audio_dir)
-
+    # data_segmentation(fns, args.segment_by_downbeats, length, audio_dir)
     # # 2. Extract Mel spectrograms from segemented audio waves
-    # melspec_extraction(fns, args.segement_audio_dir, mel_dir)
-    
+    # melspec_extraction(fns, audio_dir, mel_dir)
     # # 3. Divide dataset into train & valid subset
+
     # subset_division(mel_dir, args.dataset_pkl_path)
-    
-    # # 4. Beat Information Extraction
-    # beat_info_extraction(fns, 'low', audio_dir, beat_dir, args.cuda)
+    # 4. Beat Information Extraction
+    beat_info_extraction(fns, 'low', audio_dir, beat_dir, args.cuda)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

@@ -59,7 +59,7 @@ class BeatNetEmbedder:
         return embedding.detach().cpu().numpy()
         
 
-def BeatInfoExtractor(spectrogram, checkpoint_file=None, rp_mode=False, binfo_type = hps.binfo_type,device=None):
+def BeatInfoExtractor(checkpoint_file=None, rp_mode=False, binfo_type = hps.binfo_type,device=None):
     """
     Kept for compatibility with your code. If rp_mode=True, returns (activations, rp).
     Otherwise returns activations only.
@@ -69,18 +69,20 @@ def BeatInfoExtractor(spectrogram, checkpoint_file=None, rp_mode=False, binfo_ty
     _load_checkpoint_(model, checkpoint_file)
     model.to(device).eval()
 
+    
+
     with torch.no_grad():
-        if not isinstance(spectrogram, torch.Tensor):
-            spectrogram_tensor = torch.from_numpy(spectrogram).unsqueeze(0).unsqueeze(0).float()
-        else:
-            spectrogram_tensor = spectrogram.unsqueeze(0).float()
-        spectrogram_tensor = spectrogram_tensor.to(device)
+        # if not isinstance(spectrogram, torch.Tensor):
+        #     spectrogram_tensor = torch.from_numpy(spectrogram).unsqueeze(0).unsqueeze(0).float()
+        # else:
+        #     spectrogram_tensor = spectrogram.unsqueeze(0).float()
+        # spectrogram_tensor = spectrogram_tensor.to(device)
 
         if rp_mode:
-            rtrn, rp = model(spectrogram_tensor)  # adjust if the rp head exists
+            rtrn, rp = model()  # adjust if the rp head exists
             return rtrn.detach().cpu().numpy(), rp.detach().cpu().numpy()
         else:
-            rtrn = model(spectrogram_tensor)
+            rtrn = model()
             if isinstance(rtrn, (tuple, list)):
                 rtrn = rtrn[0]  # first head as "activations"
             return rtrn.detach().cpu().numpy()
@@ -89,7 +91,7 @@ def inference(fns, binfo_type, audio_dir, beat_dir, n_cuda):
 
     input_csv_path='src/drumaware_hmmparams.csv'
     device = torch.device(f'cuda:{n_cuda}' if torch.cuda.is_available() else 'cpu')
-    extractor = BeatInfoExtractor(binfo_type, device, input_csv_path=input_csv_path)
+    extractor = BeatInfoExtractor(checkpoint_file=None, rp_mode=False, binfo_type = hps.binfo_type,device=None)
 
     for fn in tqdm(fns):
         ### get feature of input audio file 

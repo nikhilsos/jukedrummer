@@ -158,15 +158,16 @@ def beat_activations_from_spectrogram(
                                     .float()
             
         # print(spectrogram_tensor.shape)
-        rtrn = model(spectrogram_tensor)
+        rtrn, embedding = model(spectrogram_tensor)
         # rp = [1,2,3]
-        rtrn = rtrn.numpy()
+        rtrn, embedding = rtrn.numpy(), embedding.numpy()
+        print(rtrn.shape, embedding.shape)
         # rp = rp.numpy()
 
         # Forward the spectrogram through the model. Note there are no size
         # restrictions here, as the model is fully convolutional. 
         return downbeat_model(spectrogram_tensor).numpy() if downbeats\
-               else rtrn
+               else rtrn, embedding
     
 def predict_beats_from_spectrogram(
         spectrogram,
@@ -179,11 +180,17 @@ def predict_beats_from_spectrogram(
     Given a spectrogram, predict a list of beat times using the TCN model and
     a DBN post-processor.
     """
-    raw_activations = beat_activations_from_spectrogram(
+    raw_activations, embeddings = beat_activations_from_spectrogram(
         spectrogram,
         checkpoint_file,
         downbeats
-    ).squeeze()
+    )
+
+    # raw_activations, embeddings = beat_activations_from_spectrogram(
+    #     spectrogram,
+    #     checkpoint_file,
+    #     downbeats
+    # ).squeeze()
 
     # Perform independent post-processing for downbeats
     if downbeats:
@@ -207,7 +214,7 @@ def predict_beats_from_spectrogram(
         
         predicted_beats = dbn.process(beat_activations.squeeze(), min_bpm=min_bpm, max_bpm=max_bpm)
 
-        return predicted_beats
+        return predicted_beats, embeddings
 
 
 def beatTracker(input_file, checkpoint_file=None, downbeats=True):
