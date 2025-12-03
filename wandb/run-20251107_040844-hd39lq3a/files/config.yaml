@@ -1,0 +1,73 @@
+_wandb:
+    value:
+        cli_version: 0.22.3
+        e:
+            6i81xot636kd0d7ii0h60jzd7r4vn0e4:
+                args:
+                    - --cuda
+                    - "0"
+                    - --exp_idx
+                    - "1"
+                codePath: train_lm.py
+                codePathLocal: train_lm.py
+                cpu_count: 8
+                cpu_count_logical: 16
+                cudaVersion: "12.2"
+                disk:
+                    /:
+                        total: "3935276408832"
+                        used: "1022689251328"
+                email: nikhiltesla@gmail.com
+                executable: /home/nikhil/jukedrummer/jd1/bin/python
+                git:
+                    commit: 7883e695130a38d9f0955f9afbc68af9e81ae933
+                    remote: https://github.com/nikhilsos/jukedrummer.git
+                gpu: NVIDIA GeForce RTX 4080
+                gpu_count: 2
+                gpu_nvidia:
+                    - architecture: Ada
+                      cudaCores: 9728
+                      memoryTotal: "17171480576"
+                      name: NVIDIA GeForce RTX 4080
+                      uuid: GPU-67b957d0-daf1-ca69-0e68-bdc9a4d58cf0
+                    - architecture: Ada
+                      cudaCores: 16384
+                      memoryTotal: "25757220864"
+                      name: NVIDIA GeForce RTX 4090
+                      uuid: GPU-88df9a8b-0150-f400-ef5e-2ebdec482a92
+                host: ailab-2
+                memory:
+                    total: "50426474496"
+                os: Linux-5.15.0-157-generic-x86_64-with-glibc2.35
+                program: /home/nikhil/jukedrummer/train_lm.py
+                python: CPython 3.12.1
+                root: /home/nikhil/jukedrummer
+                startedAt: "2025-11-07T04:08:44.441966Z"
+                writerId: 6i81xot636kd0d7ii0h60jzd7r4vn0e4
+        m: []
+        python_version: 3.12.1
+        t:
+            "1":
+                - 1
+                - 5
+                - 41
+                - 53
+            "2":
+                - 1
+                - 5
+                - 41
+                - 53
+            "3":
+                - 16
+            "4": 3.12.1
+            "5": 0.22.3
+            "12": 0.22.3
+            "13": linux-x86_64
+architecture:
+    value: CNN
+dataset:
+    value: CIFAR-100
+epochs:
+    value: 10
+learning_rate:
+    value: 0.02

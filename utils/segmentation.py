@@ -128,13 +128,21 @@ def inference(fns, seg_by_downbeats, length, audio_dir):
         
         beat_proc = RNNDownBeatProcessor()
         track_proc = DBNDownBeatTrackingProcessor(beats_per_bar=[3, 4], fps=100)
+
+    printed = False
+    
     for fn in tqdm(fns):
         if seg_by_downbeats:
-            print('segmentation by downbeats')
+            if not printed:
+                print('segmentation by downbeats')
+                printed = True
             downbeats = get_downbeats(fn, beat_proc, track_proc, audio_dir)
         else:
-            print('segmentation by hop window')
+            if not printed:
+                print('segmentation by hop window')
+                printed = True
             downbeats = None
+            
         segmentation(fn, downbeats, length, audio_dir)
 
 def inference_pansori(fns, seg_by_downbeats, length, audio_dir):

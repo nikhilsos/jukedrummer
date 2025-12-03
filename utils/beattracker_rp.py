@@ -99,14 +99,15 @@ from beat_tracking_tcn.utils.particle_filtering_cascade import particle_filter_c
 dbn_pf = particle_filter_cascade(beats_per_bar=[], fps= (SR / HOP_LENGTH_IN_SAMPLES), plot=[], mode='offline', min_bpm=20, max_bpm=30, transition_lambda=100)
 
 dbn = DBNBeatTrackingProcessor(
-    min_bpm=20,
-    max_bpm=30,
+    min_bpm=5,
+    max_bpm=10,
     transition_lambda=100,
     fps= (SR / HOP_LENGTH_IN_SAMPLES),
     online=True)
+
 downbeat_dbn = DBNBeatTrackingProcessor(
-    min_bpm=20,
-    max_bpm=40,
+    min_bpm=5,
+    max_bpm=10,
     transition_lambda=100,
     fps=(SR / HOP_LENGTH_IN_SAMPLES),
     online=True)
@@ -149,9 +150,6 @@ def beat_activations_from_spectrogram(
                                     .unsqueeze(0)\
                                     .unsqueeze(0)\
                                     .float()
-            
-    
-
         else:
             # Otherwise use the spectrogram as-is
             spectrogram_tensor = spectrogram.unsqueeze(0)\
@@ -161,8 +159,6 @@ def beat_activations_from_spectrogram(
         rtrn, embedding = model(spectrogram_tensor)
         # rp = [1,2,3]
         rtrn, embedding = rtrn.numpy(), embedding.numpy()
-        print(rtrn.shape, embedding.shape)
-        # rp = rp.numpy()
 
         # Forward the spectrogram through the model. Note there are no size
         # restrictions here, as the model is fully convolutional. 
@@ -173,13 +169,21 @@ def predict_beats_from_spectrogram(
         spectrogram,
         checkpoint_file=None,
         downbeats=True,
-        min_bpm=40,
-        max_bpm=200
+        min_bpm=5,
+        max_bpm=10
    ):
     """
     Given a spectrogram, predict a list of beat times using the TCN model and
     a DBN post-processor.
     """
+    # ensure spectrogram is long enough, if not pad with zeros till req_length, if longer than req_length, truncate
+    req_length = 3000  # in frames
+    # if spectrogram.shape[1] < req_length:
+    #     pad_width = req_length - spectrogram.shape[1]
+    #     spectrogram = np.pad(spectrogram, ((0, 0), (0, pad_width)), mode='constant')
+    # elif spectrogram.shape[1] > req_length:
+    #     spectrogram = spectrogram[:, :req_length]      
+
     raw_activations, embeddings = beat_activations_from_spectrogram(
         spectrogram,
         checkpoint_file,
@@ -209,29 +213,35 @@ def predict_beats_from_spectrogram(
     else:
         beat_activations = raw_activations
         # select min max bpm of dbn
-        
+        embeddings = embeddings.squeeze()
         dbn.reset()
         
         predicted_beats = dbn.process(beat_activations.squeeze(), min_bpm=min_bpm, max_bpm=max_bpm)
 
-        return predicted_beats, embeddings
+        return predicted_beats, embeddings.T
 
 
-def beatTracker(input_file, checkpoint_file=None, downbeats=True):
-    """
-    Our main entry point — load an audio file, create a spectrogram and predict
-    a list of beat times from it.
-    """    
-    mag_spectrogram = create_spectrogram(
+class beatTracker:
+    def __init__(self, checkpoint_file=None, downbeats=True):
+        self.checkpoint_file = checkpoint_file
+        self.downbeats = downbeats
+
+    def __call__(self, input_file):
+        """
+        Load audio, compute spectrogram, and predict beats.
+        """
+        mag_spectrogram = create_spectrogram(
             input_file,
             FFT_SIZE,
             HOP_LENGTH_IN_SECONDS,
-            N_MELS).T
-    
-    return predict_beats_from_spectrogram(
-        mag_spectrogram,
-        checkpoint_file,
-        downbeats)
+            N_MELS
+        ).T
+
+        return predict_beats_from_spectrogram(
+            mag_spectrogram,
+            self.checkpoint_file,
+            self.downbeats
+            )
 
 
 

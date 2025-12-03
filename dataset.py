@@ -58,6 +58,9 @@ class BeatInfoPairedDataset(Dataset):
         tg_token = np.load(os.path.join(self.root, 'token', 'target', self.vq_name, fname))
         ot_token = np.load(os.path.join(self.root, 'token', 'others', self.vq_name, fname))
 
+        if tg_token.shape[0] != ot_token.shape[0]:
+            raise ValueError(f"Token length mismatch for {fname}: target {tg_token.shape[0]} vs others {ot_token.shape[0]}")
+
         if self.binfo_type is None:
             ot_binfo = np.load(os.path.join(self.root, 'token', 'low', fname))
         else:
@@ -82,17 +85,17 @@ class MelDataset(Dataset):
             fname = fname + '.npy'
         item = np.load(os.path.join(self.root, 'mel', self.data_type, fname))
 
-        # === FIX: Ensure consistent tensor shapes ===
-        # Pad or truncate to prevent tensor size mismatch during training
-        target_frames = 5167  # Based on the error: 5167 vs 5164
-        if item.shape[1] < target_frames:
-            # Pad with zeros if shorter
-            pad_width = target_frames - item.shape[1]
-            item = np.pad(item, ((0, 0), (0, pad_width)), mode='constant')
-        elif item.shape[1] > target_frames:
-            # Truncate if longer
-            item = item[:, :target_frames]
-        # === END FIX ===
+        # # === FIX: Ensure consistent tensor shapes ===
+        # # Pad or truncate to prevent tensor size mismatch during training
+        # target_frames = 5167  # Based on the error: 5167 vs 5164
+        # if item.shape[1] < target_frames:
+        #     # Pad with zeros if shorter
+        #     pad_width = target_frames - item.shape[1]
+        #     item = np.pad(item, ((0, 0), (0, pad_width)), mode='constant')
+        # elif item.shape[1] > target_frames:
+        #     # Truncate if longer
+        #     item = item[:, :target_frames]
+        # # === END FIX ===
 
         return item
 
