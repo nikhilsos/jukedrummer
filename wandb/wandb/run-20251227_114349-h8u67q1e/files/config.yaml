@@ -1,0 +1,91 @@
+_wandb:
+    value:
+        cli_version: 0.22.3
+        e:
+            7r0qxscu8vkelxttxndzlto050wj0i5w:
+                args:
+                    - --vq_idx
+                    - "1"
+                    - --data_type
+                    - target
+                    - --cuda
+                    - "0"
+                    - --wandb
+                codePath: train_vqvae_pl.py
+                codePathLocal: train_vqvae_pl.py
+                cpu_count: 8
+                cpu_count_logical: 16
+                cudaVersion: "12.2"
+                disk:
+                    /:
+                        total: "3935276408832"
+                        used: "1298089144320"
+                email: nikhiltesla@gmail.com
+                executable: /home/nikhil/jukedrummer/jd1/bin/python3
+                git:
+                    commit: cea0805aad41bb9a2c53beb6ef7bbf56b2362ec9
+                    remote: https://github.com/nikhilsos/jukedrummer.git
+                gpu: NVIDIA GeForce RTX 4080
+                gpu_count: 2
+                gpu_nvidia:
+                    - architecture: Ada
+                      cudaCores: 9728
+                      memoryTotal: "17171480576"
+                      name: NVIDIA GeForce RTX 4080
+                      uuid: GPU-67b957d0-daf1-ca69-0e68-bdc9a4d58cf0
+                    - architecture: Ada
+                      cudaCores: 16384
+                      memoryTotal: "25757220864"
+                      name: NVIDIA GeForce RTX 4090
+                      uuid: GPU-88df9a8b-0150-f400-ef5e-2ebdec482a92
+                host: ailab-2
+                memory:
+                    total: "50426470400"
+                os: Linux-5.15.0-164-generic-x86_64-with-glibc2.35
+                program: /home/nikhil/jukedrummer/train_vqvae_pl.py
+                python: CPython 3.12.1
+                root: ./wandb
+                startedAt: "2025-12-27T11:43:49.115657Z"
+                writerId: 7r0qxscu8vkelxttxndzlto050wj0i5w
+        m: []
+        python_version: 3.12.1
+        t:
+            "1":
+                - 1
+                - 5
+                - 41
+                - 53
+            "2":
+                - 1
+                - 5
+                - 41
+                - 53
+            "3":
+                - 13
+                - 16
+            "4": 3.12.1
+            "5": 0.22.3
+            "12": 0.22.3
+            "13": linux-x86_64
+batch_size:
+    value: 32
+ckpt_dir:
+    value: ckpt/
+codebook_size:
+    value: 32
+commit_beta:
+    value: 0.02
+downsample_ratios:
+    value:
+        - 0.5
+        - 0.5
+name:
+    value: vq1
+path:
+    value: data/
+sample_step:
+    value: 50
+upsample_ratios:
+    value:
+        - 2
+        - 2

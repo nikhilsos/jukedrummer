@@ -15,9 +15,10 @@ from dataset import End2EndWrapper
 from model.vocoder import HiFiVocoder
 from hparams import MEL
 from utils.functions import get_vqvae
-from utils.beats import BeatInfoExtractor 
+from utils.beats import BeatInfoExtractor  # note if its pansori or just beats 
 from utils.melspec import Audio2Mel
-
+from utils.pansori_beats import BeatNetEmbedder
+# 
 def get_raw_data(input_dir):
     fns =  os.listdir(input_dir)
     fns = [f for f in fns if f.endswith('.wav')]
@@ -40,8 +41,8 @@ if __name__ == '__main__':
     parser.add_argument('--input_dir', type=str, default='input/')
     parser.add_argument('--output_dir', type=str, default='output/')
     parser.add_argument('--sample_iters', type=int, default=10)
-    parser.add_argument('--temp', type=float, default=0.96, help='the temperature when sampling')
-    parser.add_argument('--top_p', type=float, default=0.8, help='the threshold probability when sampling')
+    parser.add_argument('--temp', type=float, default=0.5, help='the temperature when sampling')
+    parser.add_argument('--top_p', type=float, default=0.5, help='the threshold probability when sampling')
     args = parser.parse_args()
 
     # Parameters Initialization
@@ -50,12 +51,13 @@ if __name__ == '__main__':
     hps = setup_lm_hparams(MODEL_LIST[exp_idx])
     hps.cuda = args.cuda
     hps.batch_size = 1
-    print(f'setting up exp{exp_idx} parameters')
-    print(f'cuda: {hps.cuda}')
-    print(f'bs  : {hps.batch_size}')
-    print(f'temp: {args.temp}')
+    # print(f'setting up exp{exp_idx} parameters')
+    # print(f'cuda: {hps.cuda}')
+    # print(f'bs  : {hps.batch_size}')
+    # print(f'temp: {args.temp}')
     print(f'generate samples from {args.input_dir}')
     print(f'save generated samples to {args.output_dir}')
+    print(f"vqvae name: {hps.vq_name},language model name: {MODEL_LIST[exp_idx]}")
 
     os.makedirs(output_dir, exist_ok=True)
     device = torch.device(f'cuda:{hps.cuda}')
@@ -76,7 +78,7 @@ if __name__ == '__main__':
     )
 
     lm = JukeTransformer(hps).to(device)
-    lm_ckpt = torch.load(os.path.join(hps.ckpt_dir, f'exp{exp_idx}_best.pkl'), map_location=lambda storage, loc: storage)
+    lm_ckpt = torch.load(os.path.join(hps.ckpt_dir, f'exp{exp_idx}.pkl'), map_location=lambda storage, loc: storage)
     # print("lm_ckpt['model']", '\n'.join(lm_ckpt['model'].keys()))
     # print("lm", '\n'.join(lm.state_dict().keys()))
     lm.load_state_dict(lm_ckpt['model'])
@@ -88,17 +90,17 @@ if __name__ == '__main__':
     #     device=device
     # )
 
-    # vocoder = HiFiVocoder(
-    #     ckpt_path='/home/nikhil/jukedrummer/ckpt_o/vocoder/generator_o', 
-    #     output_dir=output_dir, 
-    #     device=device
-    # )
-
     vocoder = HiFiVocoder(
-        ckpt_path='/home/nikhil/jukedrummer/hifi_gan/cp_hifigan/g_00055000', 
+        ckpt_path='/home/nikhil/jukedrummer/hifi_gan/g_epoch_00000584', 
         output_dir=output_dir, 
         device=device
     )
+
+    # vocoder = HiFiVocoder(
+    #     ckpt_path='/home/nikhil/jukedrummer/hifi_gan/cp_hifigan/g_00073500', 
+    #     output_dir=output_dir, 
+    #     device=device
+    # )
 
     
 
@@ -108,7 +110,9 @@ if __name__ == '__main__':
     #     device=device
     # )
     
-    beat_extractor = BeatInfoExtractor(binfo_type=hps.binfo_type, device=device)
+    # beat_extractor = BeatInfoExtractor(binfo_type=hps.binfo_type, device=device)
+    beat_extractor = BeatNetEmbedder(binfo_type=hps.binfo_type, device=device)
+
     mel_extractor = Audio2Mel(MEL)
   
     
@@ -128,7 +132,9 @@ if __name__ == '__main__':
             with torch.no_grad():
 
                 lm.eval()
+                print(f'otz: {otz.shape}', 'binfo shape during inference: ', binfo.shape)
                 gen_mel = lm.sample(n_samples=hps.batch_size, otz=otz, binfo=binfo, vqvae=target_vqvae, temp=args.temp, top_p=args.top_p)
+                
                 # save first 5 mels, reusable
                 # if  i < 5:
                 #     np.save(output_dir, gen_mel.detach().cpu().numpy())

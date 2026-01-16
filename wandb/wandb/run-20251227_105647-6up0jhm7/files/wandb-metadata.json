@@ -1,0 +1,56 @@
+{
+  "os":  "Linux-5.15.0-164-generic-x86_64-with-glibc2.35",
+  "python":  "CPython 3.12.1",
+  "startedAt":  "2025-12-27T10:56:47.334735Z",
+  "args":  [
+    "--vq_idx",
+    "1",
+    "--data_type",
+    "target",
+    "--cuda",
+    "0",
+    "--wandb"
+  ],
+  "program":  "/home/nikhil/jukedrummer/train_vqvae_pl.py",
+  "codePath":  "train_vqvae_pl.py",
+  "codePathLocal":  "train_vqvae_pl.py",
+  "git":  {
+    "remote":  "https://github.com/nikhilsos/jukedrummer.git",
+    "commit":  "cea0805aad41bb9a2c53beb6ef7bbf56b2362ec9"
+  },
+  "email":  "nikhiltesla@gmail.com",
+  "root":  "./wandb",
+  "host":  "ailab-2",
+  "executable":  "/home/nikhil/jukedrummer/jd1/bin/python3",
+  "cpu_count":  8,
+  "cpu_count_logical":  16,
+  "gpu":  "NVIDIA GeForce RTX 4080",
+  "gpu_count":  2,
+  "disk":  {
+    "/":  {
+      "total":  "3935276408832",
+      "used":  "1298083254272"
+    }
+  },
+  "memory":  {
+    "total":  "50426470400"
+  },
+  "gpu_nvidia":  [
+    {
+      "name":  "NVIDIA GeForce RTX 4080",
+      "memoryTotal":  "17171480576",
+      "cudaCores":  9728,
+      "architecture":  "Ada",
+      "uuid":  "GPU-67b957d0-daf1-ca69-0e68-bdc9a4d58cf0"
+    },
+    {
+      "name":  "NVIDIA GeForce RTX 4090",
+      "memoryTotal":  "25757220864",
+      "cudaCores":  16384,
+      "architecture":  "Ada",
+      "uuid":  "GPU-88df9a8b-0150-f400-ef5e-2ebdec482a92"
+    }
+  ],
+  "cudaVersion":  "12.2",
+  "writerId":  "y1ixhb921y82ijkd5ox2e90ihoh9qohz"
+}

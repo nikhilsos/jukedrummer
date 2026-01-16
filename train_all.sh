@@ -3,18 +3,22 @@
 # Please make sure all the preproces are done before training. 
 export PYTHONPATH="/home/nikhil/jukedrummer/:$PYTHONPATH" 
 ## Parameter ####
-vq_idx=1
-cuda=0
-exp_id=1
+vq_idx=3
+# cuda0=0
+# cuda1=1
+cuda=1
+exp_id=3
 #################
 
-# python3 train_vqvae.py --vq_idx $vq_idx --data_type target --cuda $cuda
-# python3 train_vqvae.py --vq_idx $vq_idx --data_type others --cuda $cuda
+python3 train_vqvae_pl.py --vq_idx $vq_idx --data_type target --cuda $cuda --wandb
+python3 train_vqvae_pl.py --vq_idx $vq_idx --data_type others --cuda $cuda --wandb
 python3 token_extract.py --cuda $cuda --vq_idx $vq_idx --data_type target --ckpt_dir ckpt/ --mel_dir data/mel --output_dir data/token
 python3 token_extract.py --cuda $cuda --vq_idx $vq_idx --data_type others --ckpt_dir ckpt/ --mel_dir data/mel --output_dir data/token
-python3 train_lm.py --cuda $cuda --exp_idx $exp_id
+# python3 train_lm.py --cuda $cuda --exp_idx $exp_id --wandb
 
-# # clear older fine tuning data
+# python3 train_vqvae_pl.py --vq_idx 2 --data_type others --cuda 0 --wandb
+
+# # clear older fine tuning d
 # rm -r /home/nikhil/jukedrummer/hifi_gan/LJSpeech-1.1/wavs/* 
 
 # python extract_vqvae_recon_mel.py

@@ -22,8 +22,11 @@ import numpy as np
 from madmom.features import DBNBeatTrackingProcessor
 import torch
 import librosa
+import sys
+sys.path.append('/home/nikhil/projects/dbtracker/')
 
-from beat_tracking_tcn.models.offlinetcn import BeatNet
+from model.downbeat_model import BeatNet 
+# from beat_tracking_tcn.models.offlinetcn import BeatNet
 # from beat_tracking_tcn.models.onlinetcn import BeatNet
 
 import numpy as np

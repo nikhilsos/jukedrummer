@@ -16,10 +16,10 @@ from env import AttrDict, build_env
 from meldataset import MelDataset, mel_spectrogram, get_dataset_filelist
 from models import Generator, MultiPeriodDiscriminator, MultiScaleDiscriminator, feature_loss, generator_loss,\
     discriminator_loss
-from utils import plot_spectrogram, scan_checkpoint, load_checkpoint, save_checkpoint, create_splits
+from hifi_gan.utils import plot_spectrogram, scan_checkpoint, load_checkpoint, save_checkpoint, create_splits
 
 torch.backends.cudnn.benchmark = True
-
+from tqdm import tqdm
 
 def train(rank, a, h):
     # if h.num_gpus > 1:
@@ -28,6 +28,7 @@ def train(rank, a, h):
 
     torch.cuda.manual_seed(h.seed)
     device = torch.device('cuda:{:d}'.format(rank))
+    print('cuda device {:d} is used'.format(rank))
 
     generator = Generator(h).to(device)
     mpd = MultiPeriodDiscriminator().to(device)
@@ -126,12 +127,13 @@ def train(rank, a, h):
     for epoch in range(max(0, last_epoch), a.training_epochs):
         if rank == 0:
             start = time.time()
-            print("Epoch: {}".format(epoch+1))
+            # print("Epoch: {}".format(epoch+1))
 
         if h.num_gpus > 1:
             train_sampler.set_epoch(epoch)
 
-        for i, batch in enumerate(train_loader):
+        for i, batch in tqdm(enumerate(train_loader), total=len(train_loader)):
+            # print("Batch: {}".format(i+1))
             if rank == 0:
                 start_b = time.time()
             x, y, _, y_mel = batch
@@ -204,6 +206,8 @@ def train(rank, a, h):
                     sw.add_scalar("training/gen_loss_total", loss_gen_all, steps)
                     sw.add_scalar("training/mel_spec_error", mel_error, steps)
 
+
+
                 # Validation
                 if steps % a.validation_interval == 0:  # and steps != 0:
                     generator.eval()
@@ -255,33 +259,27 @@ def train(rank, a, h):
         scheduler_g.step()
         scheduler_d.step()
         
-        if rank == 0:
-            print('Time taken for epoch {} is {} sec\n'.format(epoch + 1, int(time.time() - start)))
 
 
 def main():
     print('Initializing Training Process..')
-    
-
     parser = argparse.ArgumentParser()
-
     parser.add_argument('--group_name', default=None)
     parser.add_argument('--input_wavs_dir', default='/home/nikhil/jukedrummer/data/segment_audio/target')
-    parser.add_argument('--input_mels_dir', default='/home/nikhil/jukedrummer/data/audio/reconstructed_mel_recon_vq1')
+    parser.add_argument('--input_mels_dir', default='/home/nikhil/jukedrummer/data/audio/reconstructed_mel_recon_vq1/')
     parser.add_argument('--input_training_file', default='/home/nikhil/jukedrummer/data/segment_audio/target/training.txt')
     parser.add_argument('--input_validation_file', default='/home/nikhil/jukedrummer/data/segment_audio/target/validation.txt')
     parser.add_argument('--checkpoint_path', default='/home/nikhil/jukedrummer/hifi_gan/cp_hifigan_pansori')
     parser.add_argument('--config', default='/home/nikhil/jukedrummer/hifi_gan/config_v1.json')
-    parser.add_argument('--training_epochs', default=3100, type=int)
+    parser.add_argument('--training_epochs', default=1000, type=int)
     parser.add_argument('--stdout_interval', default=5, type=int)
-    parser.add_argument('--checkpoint_interval', default=5000, type=int)
+    parser.add_argument('--checkpoint_interval', default=250, type=int)
     parser.add_argument('--summary_interval', default=100, type=int)
     parser.add_argument('--validation_interval', default=1000, type=int)
     parser.add_argument('--fine_tuning', default=False, type=bool)
     parser.add_argument('--cuda', default=1, type=int)
-
     a = parser.parse_args()
-    # create_splits(a.input_wavs_dir, split_ratio=0.90)
+    create_splits(a.input_wavs_dir, split_ratio=0.90)
     
 
 

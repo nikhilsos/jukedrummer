@@ -101,9 +101,10 @@ class JukeTransformer(nn.Module):
     
     def binfo_conditioner(self, binfo):
         if self.binfo_type == 'low':
-            binfo = F.interpolate(binfo.unsqueeze(1), size=(self.prior.encoder_dims, binfo.size(-1))).squeeze(1)
-            # print(f'binfo shape, during llm training: {binfo.shape}') # debugging
-            binfo = self.bact_state_proj(binfo)
+            # binfo = binfo.transpose(0,1)
+            binfo = F.interpolate(binfo.unsqueeze(1), size=(self.prior.encoder_dims, 16)).squeeze(1)
+            binfo = self.bact_state_proj (binfo)
+            
         elif self.binfo_type == 'mid':
             binfo = self.onset_emb(binfo.long())
         elif self.binfo_type == 'high':
@@ -116,6 +117,7 @@ class JukeTransformer(nn.Module):
 
     def forward(self, tgz, otz, binfo=None):
         binfo = self.binfo_conditioner(binfo)
+        # print(otz.shape, binfo.shape, 'otz and binfo shape in llm forward') # debugging
         encoder_kv = self.get_encoder_kv(otz, binfo)
         loss, pred = self.prior(tgz, x_cond=binfo, y_cond=None, encoder_kv=encoder_kv, fp16=False, loss_full=False,
                     encode=False, get_preds=True, get_acts=False, get_sep_loss=False)

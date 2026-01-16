@@ -50,6 +50,7 @@ class BeatInfoPairedDataset(Dataset):
         self.binfo_type = hps.binfo_type
         self.vq_name = hps.vq_name
         self.return_fn = return_fn
+        self.max_len = 4096 // int(np.prod(hps.upsample_ratios))
 
     def __getitem__(self, idx):
         raw = self.fl[idx]
@@ -57,9 +58,10 @@ class BeatInfoPairedDataset(Dataset):
 
         tg_token = np.load(os.path.join(self.root, 'token', 'target', self.vq_name, fname))
         ot_token = np.load(os.path.join(self.root, 'token', 'others', self.vq_name, fname))
+        # print(tg_token.shape, ot_token.shape, 'token shapes')  # debugging
 
-        if tg_token.shape[0] != ot_token.shape[0]:
-            raise ValueError(f"Token length mismatch for {fname}: target {tg_token.shape[0]} vs others {ot_token.shape[0]}")
+        assert tg_token.shape[0] == ot_token.shape[0] and tg_token.shape[0] <=self.max_len , \
+        print(f"Token length mismatch for {fname}: target {tg_token.shape[0]} vs others {ot_token.shape[0]}")
 
         if self.binfo_type is None:
             ot_binfo = np.load(os.path.join(self.root, 'token', 'low', fname))
@@ -71,6 +73,34 @@ class BeatInfoPairedDataset(Dataset):
 
     def __len__(self):
         return len(self.fl)
+
+# class MelDataset(Dataset):
+#     def __init__(self, fl, hps, data_type):
+#         super().__init__()
+#         self.fl = fl
+#         self.root = hps.path
+#         self.data_type = data_type
+#         self.T = 4096
+
+#     def __getitem__(self, idx):
+#         fname = self.fl[idx]
+#         if not fname.endswith('.npy'):
+#             fname = fname + '.npy'
+#         item = np.load(os.path.join(self.root, 'mel', self.data_type, fname))
+
+#         # # === FIX: Ensure consistent tensor shapes ===
+#         # # Pad or truncate to prevent tensor size mismatch during training
+#         # target_frames = 5167  # Based on the error: 5167 vs 5164
+#         # if item.shape[1] < target_frames:
+#         #     # Pad with zeros if shorter
+#         #     pad_width = target_frames - item.shape[1]
+#         #     item = np.pad(item, ((0, 0), (0, pad_width)), mode='constant')
+#         # elif item.shape[1] > target_frames:
+#         #     # Truncate if longer
+#         #     item = item[:, :target_frames]
+#         # # === END FIX ===
+
+#         return item
 
 class MelDataset(Dataset):
     def __init__(self, fl, hps, data_type):
@@ -84,19 +114,6 @@ class MelDataset(Dataset):
         if not fname.endswith('.npy'):
             fname = fname + '.npy'
         item = np.load(os.path.join(self.root, 'mel', self.data_type, fname))
-
-        # # === FIX: Ensure consistent tensor shapes ===
-        # # Pad or truncate to prevent tensor size mismatch during training
-        # target_frames = 5167  # Based on the error: 5167 vs 5164
-        # if item.shape[1] < target_frames:
-        #     # Pad with zeros if shorter
-        #     pad_width = target_frames - item.shape[1]
-        #     item = np.pad(item, ((0, 0), (0, pad_width)), mode='constant')
-        # elif item.shape[1] > target_frames:
-        #     # Truncate if longer
-        #     item = item[:, :target_frames]
-        # # === END FIX ===
-
         return item
 
     def __len__(self):
@@ -118,7 +135,14 @@ class End2EndWrapper(Dataset):
     
     def __getitem__(self, index):
         beat_info = self.beat_extractor(self.dpaths[index])
-        beat_info = torch.from_numpy(beat_info).unsqueeze(0).to(self.device) if not np.isnan(beat_info).any() else None
+        # beat_info = torch.from_numpy(beat_info).unsqueeze(0).to(self.device)  if not np.isnan(beat_info).any() else None
+        beat_info = np.asarray(beat_info, dtype=np.float32)
+
+        if not np.isnan(beat_info).any():
+            beat_info = torch.from_numpy(beat_info).unsqueeze(0).to(self.device)
+        else:
+            beat_info = None
+
         mel = wav2mel(self.dpaths[index], self.mel_extractor)
         t = mel2token(mel, self.vqvae, self.others_mean, self.others_std, self.device)
         t = torch.from_numpy(t).long().unsqueeze(0).to(self.device)

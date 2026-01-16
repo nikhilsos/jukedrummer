@@ -29,7 +29,6 @@ def get_downbeats(fn, beat_proc, track_proc, root):
     drums, sr = librosa.load(os.path.join(root, 'target', fn), sr = 44100)
     others, sr = librosa.load(os.path.join(root, 'others', fn), sr = 44100)
     drums = pad_to(drums, max(len(drums), len(others)))
-    others = pad_to(others, max(len(drums), len(others)))
     act = beat_proc(others+drums)
     downbeats = [ t[0] for t in track_proc(act) if t[1]==1] # beat probabilities 
     # debugging
@@ -49,78 +48,59 @@ def get_downbeats_pansori(fn, checkpoint_file=None, downbeats=False, root = None
 def segmentation(fn, downbeats, length, audio_dir):
     os.makedirs('data/segment_audio/others', exist_ok=True)
     os.makedirs('data/segment_audio/target', exist_ok=True)
+
     others, sr = librosa.load(os.path.join(audio_dir, 'others', fn), sr=44100)
     drums, sr = librosa.load(os.path.join(audio_dir, 'target', fn), sr=44100)
-    if not len(others) == len(drums):
-        to_pad = max(len(others), len(drums)) 
+
+    # equalize source lengths
+    if len(others) != len(drums):
+        to_pad = max(len(others), len(drums))
         others = pad_to(others, to_pad)
         drums = pad_to(drums, to_pad)
-        print(type(downbeats))
-    if downbeats == None:
+
+    def write_segment(others_s, drums_s, count):
+        # HARD invariant
+        others_s = pad_to(others_s, length)
+        drums_s = pad_to(drums_s, length)
+
+        assert len(others_s) == length
+        assert len(drums_s) == length
+
+        base = fn.split(".")[0]
+        sf.write(f'data/segment_audio/others/{base}_{count}.wav', others_s, 44100)
+        sf.write(f'data/segment_audio/target/{base}_{count}.wav', drums_s, 44100)
+
+    # -------------------------
+    # hop-window segmentation
+    # -------------------------
+    if downbeats is None:
         count = 0
-        while(count*length+length < len(others)):
-            others_s = others[count*length:count*length+length]
-            drums_s = drums[count*length:count*length+length]
-            sf.write(os.path.join('data/segment_audio', 'others', f'{fn.split(".")[0]}_{count}.wav'), others_s, 44100)
-            sf.write(os.path.join('data/segment_audio', 'target',  f'{fn.split(".")[0]}_{count}.wav'), drums_s, 44100)
+        pos = 0
+        while pos < len(others):
+            others_s = others[pos:pos + length]
+            drums_s = drums[pos:pos + length]
+            write_segment(others_s, drums_s, count)
+            pos += length
             count += 1
-    else:
-        count = 0 
-        # handle empty list of downbeats
-        if len(downbeats) == 0:
-            print(f"No downbeats detected for file: {fn}")
-            return []
+        return
 
-        # print('segmentation by downbeats', downbeats)
-        start = downbeats.pop(0)
-        
-        while len(downbeats) != 0:
-            cur = downbeats.pop(0)
-            if cur - start > 0:
-                start_samples = round(start * 44100)
-                drums_s = drums[start_samples:start_samples+length]
-                others_s = others[start_samples:start_samples+length]
-                # handle wav and wav
+    # -------------------------
+    # downbeat-based segmentation
+    # -------------------------
+    if len(downbeats) == 0:
+        return
 
-                if fn.endswith('.wav'):
-                    try:
-                        print(f"Writing segment {fn.split('.')[0]}_{count}.wav from {start_samples} to {start_samples+length}")
-                        sf.write(os.path.join('data/segment_audio', 'others', f'{fn.split(".")[0]}_{count}.wav'), others_s, 44100)
-                        sf.write(os.path.join('data/segment_audio', 'target',  f'{fn.split(".")[0]}_{count}.wav'), drums_s, 44100)
-                    except Exception as e:
-                        print(f"Error writing file {fn.split('.')[0]}_{count}.wav: {e}")
-                elif fn.endswith('.mp3'):
-                    raise NotImplementedError("MP3 format is not supported yet.")
+    count = 0
+    downbeats = list(downbeats)
 
-
-                else:
-                    raise ValueError(f"Unsupported file format: {fn}")
-
-
-                start = cur
-                count += 1
-
-        # Process the final segment after the last downbeat
-        start_samples = round(start * 44100)
-        if start_samples < len(drums):
-            drums_s = drums[start_samples:start_samples+length]
-            others_s = others[start_samples:start_samples+length]
-
-            if fn.endswith('.wav'):
-                try:
-                    print(f"Writing segment {fn.split('.')[0]}_{count}.wav from {start_samples} to {start_samples+length}")
-                    sf.write(os.path.join('data/segment_audio', 'others', f'{fn.split(".")[0]}_{count}.wav'), others_s, 44100)
-                    sf.write(os.path.join('data/segment_audio', 'target',  f'{fn.split(".")[0]}_{count}.wav'), drums_s, 44100)
-                except Exception as e:
-                    print(f"Error writing file {fn.split('.')[0]}_{count}.wav: {e}")
-            elif fn.endswith('.mp3'):
-                raise NotImplementedError("MP3 format is not supported yet.")
-
-
-            else:
-                raise ValueError(f"Unsupported file format: {fn}")
-
-            count += 1
+    for start in downbeats:
+        start_samples = int(round(start * 44100))
+        if start_samples >= len(drums):
+            continue
+        others_s = others[start_samples:start_samples + length]
+        drums_s = drums[start_samples:start_samples + length]
+        write_segment(others_s, drums_s, count)
+        count += 1
 
 def inference(fns, seg_by_downbeats, length, audio_dir):
     print('step 1: data segment')

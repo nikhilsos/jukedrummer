@@ -98,7 +98,7 @@ vq1 = Hyperparams(
     codebook_size = 32,
     upsample_ratios = [2, 2],
     downsample_ratios = [0.5, 0.5],
-    commit_beta = 0.02,
+    commit_beta = 0.25,
 )
 HPARAMS_REGISTRY['vq1'] = vq1
 
@@ -108,7 +108,7 @@ vq2 = Hyperparams(
     codebook_size = 64,
     upsample_ratios = [4, 2],
     downsample_ratios = [0.5, 0.25],
-    commit_beta = 0.02,
+    commit_beta = 0.25,
 )
 HPARAMS_REGISTRY['vq2'] = vq2
 

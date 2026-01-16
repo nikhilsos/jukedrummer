@@ -12,14 +12,6 @@ def get_vqvae(vq_idx, data_type, ckpt_dir, device):
         map_location=lambda storage, loc: storage, weights_only=False
     )
 
-    # # load pth instead of pkl --- IGNORE ---
-    # ckpt_name = f'vq{vq_idx}_{data_type}.pth' #--- IGNORE ---
-    # ckpt = torch.load( #--- IGNORE ---
-    #     os.path.join(ckpt_dir, ckpt_name),  #--- IGNORE ---
-    #     map_location=lambda storage, loc: storage, weights_only=False #--- IGNORE ---
-    # ) #--- IGNORE ---
-
-
     hps = Hyperparams(ckpt['hps'])
     # hps['mel_dir'] = '/home/lego/NAS189/home/codify/data/drums/feature/mel/hop'
     hps['output_dir'] = os.path.join(hps['path'], 'token', data_type, f'vq{vq_idx}')
@@ -54,18 +46,18 @@ def mel2token(data, vqvae, mean, std, device):
     return x_l
 
 
-def token2mel(data, vqvae, mean, std, device):
-    if isinstance(data, str):
-        t = np.load(data)
-    elif isinstance(data, np.ndarray):
-        t = data
-    if np.any(np.isnan(t)):
-        return None
+# def token2mel(data, vqvae, mean, std, device):
+#     if isinstance(data, str):
+#         t = np.load(data)
+#     elif isinstance(data, np.ndarray):
+#         t = data
+#     if np.any(np.isnan(t)):
+#         return None
 
-    with torch.no_grad():
-        t = torch.LongTensor(t).to(device)
-        m = vqvae.decode(t)
-    return m
+#     with torch.no_grad():
+#         t = torch.LongTensor(t).to(device)
+#         m = vqvae.decode(t)
+#     return m
         
 
 def wav2mel(data, audio2mel):

@@ -12,8 +12,8 @@ from model.vqvae import VQVAE, Sampler
 from hparams import setup_vq_hparams, OPT
 from jukebox.jukebox.train import get_optimizer
 from icecream import ic
-
 import torch.nn.functional as F
+
 def parse_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument('--vq_idx', type=int, required=True, help="Index of the VQ-VAE model")
@@ -24,10 +24,7 @@ def parse_arguments():
     if len(sys.argv) == 1:
         parser.print_help()
         # sys.exit(1)
-
     return parser.parse_args()
-
-
 
 def get_dataset(hps, data_type):
     dataset_path = os.path.join(hps['path'], 'dataset.pkl')
@@ -58,10 +55,6 @@ def get_dataset(hps, data_type):
 
     # print(f"Train IDs count: {len(tr_ids)}")
     # print(f"Valid IDs count: {len(va_ids)}")
-
-
-    
-
     tr_dataset = MelDataset(tr_ids, hps, data_type)
     va_dataset = MelDataset(va_ids, hps, data_type)
 
@@ -95,8 +88,6 @@ def get_dataset(hps, data_type):
 
         return torch.stack(processed)
 
-
-
     tr_dataloader = torch.utils.data.DataLoader(
         dataset=tr_dataset,
         batch_size=hps['batch_size'],
@@ -119,9 +110,7 @@ def get_dataset(hps, data_type):
     # verify the dataloaders are not empty
     if len(tr_dataloader) == 0 or len(va_dataloader) == 0:
         raise ValueError("Dataloaders are empty. Please check the dataset paths and contents.")
-
     return tr_dataloader, va_dataloader, mean, std
-
 
 def setup_model(hps, device):
     encoder = Sampler(input_dim=80, output_dim=64, z_scale_factors=hps['downsample_ratios'])
@@ -133,7 +122,6 @@ def setup_model(hps, device):
         device=device
     ).to(device)
     return model
-
 
 def main():
     args = parse_arguments()
@@ -192,11 +180,11 @@ def main():
             loss = commit_loss * hps['commit_beta'] + recon_loss
 
             loss.backward()
-            opt.step()
             scheduler.step()
+            opt.step()
 
             summary['train_reconstruct_loss'] = recon_loss.item()
-            summary['train_commit_loss'] = commit_loss.item()
+            summary['train_commit_loss'] = commit_loss.item()    
 
         model.eval()
         val_loss = 0.0
@@ -212,7 +200,7 @@ def main():
                 summary['valid_reconstruct_loss'] = recon_loss.item()
                 summary['valid_commit_loss'] = commit_loss.item()
 
-                val_loss += recon_loss.item()  # Accumulate validation loss
+                val_loss += recon_loss.item()  # Accumulate validation loss -- why not beta ???
 
                 if epoch % 50 == 0:
                     mel_img = make_grid(mel[:4].unsqueeze(1), nrow=1).cpu().numpy().transpose(1, 2, 0)
@@ -238,11 +226,9 @@ def main():
             'std': std.cpu().numpy(),
             'hps': dict(hps),
         }
-
-        # Save current
-        current_path = os.path.join(checkpoint_dir, f'current_model_epoch_{epoch}_{args.data_type}.pkl')
-        torch.save(model_dict, current_path)
-
+        # # Save current
+        # current_path = os.path.join(checkpoint_dir, f'current_model_epoch_{epoch}_{args.data_type}.pkl')
+        # torch.save(model_dict, current_path)
         # Save best if improved
         if val_loss < best_val_loss:
             best_val_loss = val_loss
@@ -252,36 +238,18 @@ def main():
             print("Validation loss improved — saved best model.")
         else:
             counter += 1
-            print(f"No improvement. Early stopping counter: {counter}/{patience}")
-
-    # Clean up old checkpoints (keep last 3)
-    all_ckpts = sorted(
-        [f for f in os.listdir(checkpoint_dir) if f.startswith('current_model_epoch_')],
-        key=lambda x: int(x.split('_')[3])
-    )
-    for old in all_ckpts[:-3]:
-        try:
-            os.remove(os.path.join(checkpoint_dir, old))
-        except OSError:
-            pass
-
-            # Early stopping condition
             if counter >= patience:
-                print("Early stopping triggered.")
+                print(f"No improvement. Early stopping counter: {counter}/{patience}")
                 break
+    print(f"Epoch {epoch} Summary:")
+    print(summary)
+    if 'metric' in locals():
+        print(f"Usage: {metric['usage'].item()} | Used Curr: {metric['used_curr'].item()}")
+    else:
+        print("Metric not available for this epoch.")
 
-            print(f"Epoch {epoch} Summary:")
-            print(summary)
-            if 'metric' in locals():
-                print(f"Usage: {metric['usage'].item()} | Used Curr: {metric['used_curr'].item()}")
-            else:
-                print("Metric not available for this epoch.")
-
-
-            if is_wandb:
-                wandb.log(summary, step=epoch)
-
-
+    if is_wandb:
+        wandb.log(summary, step=epoch)
 
 if __name__ == '__main__':
     main()
@@ -315,8 +283,6 @@ def parse_arguments():
 
     return parser.parse_args()
 
-
-
 def get_dataset(hps, data_type):
     dataset_path = os.path.join(hps['path'], 'dataset.pkl')
     if not os.path.exists(dataset_path):
@@ -346,9 +312,6 @@ def get_dataset(hps, data_type):
 
     print(f"Train IDs count: {len(tr_ids)}")
     print(f"Valid IDs count: {len(va_ids)}")
-
-
-    
 
     tr_dataset = MelDataset(tr_ids, hps, data_type)
     va_dataset = MelDataset(va_ids, hps, data_type)

@@ -14,7 +14,7 @@ import torch
 import torch.nn as nn
 import sys
 sys.path.append('/home/nikhil/projects/dbtracker/')
-from beat_tracking_tcn.models.tcn import NonCausalTemporalConvolutionalNetwork
+from beat_tracking_tcn.models.offlinetcn import NonCausalTemporalConvolutionalNetwork
 # from beat_tracking_tcn.models.frontend import BeatThis
 from beat_tracking_tcn.models.ctcn import TemporalConvNet
 
@@ -85,7 +85,7 @@ class BeatNet(nn.Module):
         self.out = nn.Conv1d(16, 1 if not downbeats else 2, 1)
         self.sigmoid = nn.Sigmoid()
 
-    def forward(self, x, return_embeddings = False):
+    def forward(self, x, return_embeddings = True):
         """
         Feed a tensor forward through the BeatNet.
 
