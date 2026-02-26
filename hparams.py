@@ -142,8 +142,8 @@ lm1 = Hyperparams(
     dropout = 0.2,
     heads = 2,
     blocks = 16,
-
-    binfo_type = 'low'
+    num_classes = 4,
+    binfo_type = 'dbeats' # default = low
 )
 HPARAMS_REGISTRY['lm1'] = lm1
 
@@ -156,7 +156,6 @@ lm2 = Hyperparams(
     dropout = 0.2,
     heads = 2,
     blocks = 16,
-
     binfo_type = None,
 )
 HPARAMS_REGISTRY['lm2'] = lm2

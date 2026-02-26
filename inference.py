@@ -41,8 +41,8 @@ if __name__ == '__main__':
     parser.add_argument('--input_dir', type=str, default='input/')
     parser.add_argument('--output_dir', type=str, default='output/')
     parser.add_argument('--sample_iters', type=int, default=10)
-    parser.add_argument('--temp', type=float, default=0.5, help='the temperature when sampling')
-    parser.add_argument('--top_p', type=float, default=0.5, help='the threshold probability when sampling')
+    parser.add_argument('--temp', type=float, default=0.7, help='the temperature when sampling')
+    parser.add_argument('--top_p', type=float, default=0.6, help='the threshold probability when sampling')
     args = parser.parse_args()
 
     # Parameters Initialization
@@ -78,7 +78,7 @@ if __name__ == '__main__':
     )
 
     lm = JukeTransformer(hps).to(device)
-    lm_ckpt = torch.load(os.path.join(hps.ckpt_dir, f'exp{exp_idx}.pkl'), map_location=lambda storage, loc: storage)
+    lm_ckpt = torch.load(os.path.join(hps.ckpt_dir, f'exp{exp_idx}_class_id.pkl'), map_location=lambda storage, loc: storage)
     # print("lm_ckpt['model']", '\n'.join(lm_ckpt['model'].keys()))
     # print("lm", '\n'.join(lm.state_dict().keys()))
     lm.load_state_dict(lm_ckpt['model'])
@@ -91,7 +91,7 @@ if __name__ == '__main__':
     # )
 
     vocoder = HiFiVocoder(
-        ckpt_path='/home/nikhil/jukedrummer/hifi_gan/g_epoch_00000584', 
+        ckpt_path='/home/nikhil/jukedrummer/ckpt/g_epoch_00000635', 
         output_dir=output_dir, 
         device=device
     )
@@ -110,12 +110,11 @@ if __name__ == '__main__':
     #     device=device
     # )
     
-    # beat_extractor = BeatInfoExtractor(binfo_type=hps.binfo_type, device=device)
-    beat_extractor = BeatNetEmbedder(binfo_type=hps.binfo_type, device=device)
+    beat_extractor = BeatInfoExtractor(binfo_type=hps.binfo_type, device=device)
+    # beat_extractor = BeatNetEmbedder(binfo_type=hps.binfo_type, device=device)
 
     mel_extractor = Audio2Mel(MEL)
   
-    
     dataset = End2EndWrapper(
         args.input_dir, 
         others_vqvae, 
@@ -128,23 +127,36 @@ if __name__ == '__main__':
 
     for j in range(args.sample_iters):
         for i in tqdm(range(len(dataset))):
-            otz, binfo, fn = dataset[i]
+            otz, binfo, fn, class_id = dataset[i]
             with torch.no_grad():
 
                 lm.eval()
                 print(f'otz: {otz.shape}', 'binfo shape during inference: ', binfo.shape)
-                gen_mel = lm.sample(n_samples=hps.batch_size, otz=otz, binfo=binfo, vqvae=target_vqvae, temp=args.temp, top_p=args.top_p)
+                print(f"binfo_type: {lm.binfo_type}")
+                print(f"binfo shape: {binfo.shape}, dtype: {binfo.dtype}")
+                gen_mel = lm.sample(n_samples=hps.batch_size, otz=otz, binfo=binfo, vqvae=target_vqvae, class_id=class_id, temp=args.temp, top_p=args.top_p)
                 
                 # save first 5 mels, reusable
                 # if  i < 5:
                 #     np.save(output_dir, gen_mel.detach().cpu().numpy())
                 
-                save_spectrogram_visuals(gen_mel[0].cpu().numpy(), os.path.join(output_dir, f'{j}_'+fn.replace('.wav', '_mel.png')))
+                # save_spectrogram_visuals(gen_mel[0].cpu().numpy(), os.path.join(output_dir, f'{j}_'+fn.replace('.wav', '_mel.png')))
                 gen_mel = gen_mel * target_std + target_mean  
                 gen_wavs = vocoder(gen_mel)
             orig, _ = sf.read(os.path.join(args.input_dir, fn),always_2d=True)
             # save spectrogram
 
-            sf.write(os.path.join(output_dir, f'{j}_'+fn.replace('.npy', '.wav')), gen_wavs[:,None], 44100)
+            gen_wavs_np = gen_wavs.detach().cpu().numpy() if isinstance(gen_wavs, torch.Tensor) else gen_wavs
+            if gen_wavs_np.ndim == 1:
+                gen_wavs_np = gen_wavs_np[:, None]
+            name, ext = os.path.splitext(fn)
+
+            out_path = os.path.join(
+                output_dir,
+                f"{name}_generated_{j}{ext}"
+            )
+
+            sf.write(out_path, gen_wavs_np, 44100)
+            # sf.write(os.path.join(output_dir, (fn + f'{j}' + '_generated').replace('.npy', '.wav')), gen_wavs_np, 44100)
 
     # real_wavs = real_wav.detach().cpu().numpy()

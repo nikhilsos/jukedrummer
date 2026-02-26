@@ -68,11 +68,19 @@ class JukeTransformer(nn.Module):
         self.prime_state_proj = Conv1D(args.d_model, args.d_model)
         self.prime_state_ln = LayerNorm(args.d_model)
         self.binfo_type = args.binfo_type
+
+        self.num_classes = getattr(args, 'num_classes', 4)
+        self.class_emb = nn.Embedding(self.num_classes, args.d_model)
+
+
+
         if self.binfo_type == 'low':
             self.bact_state_proj = Conv1D(16, args.d_model) # changed from 50 to 1 for pansori beat
         elif self.binfo_type == 'mid':
             self.onset_emb = nn.Embedding(2, args.d_model)
         elif self.binfo_type == 'high':
+            self.beat_emb = nn.Embedding(3, args.d_model)
+        elif self.binfo_type == 'dbeats':
             self.beat_emb = nn.Embedding(3, args.d_model)
         elif self.binfo_type is None:
             pass
@@ -91,7 +99,10 @@ class JukeTransformer(nn.Module):
     def get_encoder_kv(self, prime, binfo, fp16=False):
         if self.use_tokens:
             N = prime.shape[0]
+            # print(f"prime min={prime.min()}, max={prime.max()}, shape={prime.shape}")
+            # print(f"prime dtype={prime.dtype}")
             prime_acts = self.prime_prior(prime, binfo, None, None, fp16=fp16, isroll=False)
+        
             assert prime_acts.dtype == torch.float, f'Expected torch.float, got {prime_acts.dtype}'
             encoder_kv = self.prime_state_ln(self.prime_state_proj(prime_acts))
             assert encoder_kv.dtype == torch.float, f'Expected torch.float, got {encoder_kv.dtype}'
@@ -99,34 +110,49 @@ class JukeTransformer(nn.Module):
             encoder_kv = None
         return encoder_kv
     
-    def binfo_conditioner(self, binfo):
+    def binfo_conditioner(self, binfo, class_id=None):
         if self.binfo_type == 'low':
-            # binfo = binfo.transpose(0,1)
             binfo = F.interpolate(binfo.unsqueeze(1), size=(self.prior.encoder_dims, 16)).squeeze(1)
-            binfo = self.bact_state_proj (binfo)
-            
+            binfo = self.bact_state_proj(binfo)
         elif self.binfo_type == 'mid':
             binfo = self.onset_emb(binfo.long())
         elif self.binfo_type == 'high':
             binfo = binfo.double()
             binfo = torch.where(binfo > 1, 2., binfo)
             binfo = self.beat_emb(binfo.long())
+        elif self.binfo_type == 'dbeats':          # ← was missing!
+            binfo = binfo.double()
+            binfo = torch.where(binfo > 1, 2., binfo)
+            binfo = self.beat_emb(binfo.long())
         elif self.binfo_type is None:
             binfo = None
-        return binfo
 
-    def forward(self, tgz, otz, binfo=None):
-        binfo = self.binfo_conditioner(binfo)
+        if class_id is not None:
+            cls_emb = self.class_emb(class_id.long())
+            cls_emb = cls_emb.unsqueeze(1)
+            if binfo is not None:
+                binfo = binfo + cls_emb
+            else:
+                binfo = cls_emb.expand(-1, self.prior.encoder_dims, -1)
+
+        return binfo
+    
+
+    def forward(self, tgz, otz, binfo=None, class_id=None):
+        binfo = self.binfo_conditioner(binfo, class_id)
         # print(otz.shape, binfo.shape, 'otz and binfo shape in llm forward') # debugging
         encoder_kv = self.get_encoder_kv(otz, binfo)
         loss, pred = self.prior(tgz, x_cond=binfo, y_cond=None, encoder_kv=encoder_kv, fp16=False, loss_full=False,
                     encode=False, get_preds=True, get_acts=False, get_sep_loss=False)
         return loss, pred, 
     
-    def sample(self, n_samples, otz, binfo, vqvae, temp=1.0, top_k=0, top_p=0.0):
+    def sample(self, n_samples, otz, binfo, vqvae, class_id=None, temp=1.0, top_k=0, top_p=0.0):
         self.eval()
         with torch.no_grad():
-            binfo = self.binfo_conditioner(binfo)
+            # print(f"encoder_dims: {self.prior.encoder_dims}")
+            # print(f"binfo shape before conditioning: {binfo.shape}")
+            # print(f"otz min={otz.min().item()}, max={otz.max().item()}")  # CPU-safe
+            binfo = self.binfo_conditioner(binfo, class_id)
             encoder_kv = self.get_encoder_kv(otz, binfo)
             pred = self.prior.sample(n_samples, x_cond=binfo, y_cond=None,
                 encoder_kv=encoder_kv, fp16=False, temp=temp, top_k=top_k, top_p=top_p,

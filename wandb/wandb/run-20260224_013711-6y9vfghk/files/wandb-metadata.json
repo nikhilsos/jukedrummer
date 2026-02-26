@@ -1,0 +1,24 @@
+{
+  "os":  "Linux-5.15.0-164-generic-x86_64-with-glibc2.35",
+  "python":  "CPython 3.12.1",
+  "startedAt":  "2026-02-24T01:37:11.423350Z",
+  "args":  [
+    "--cuda",
+    "0",
+    "--exp_idx",
+    "1",
+    "--wandb"
+  ],
+  "program":  "/home/nikhil/jukedrummer/train_lm.py",
+  "codePath":  "train_lm.py",
+  "codePathLocal":  "train_lm.py",
+  "git":  {
+    "remote":  "https://github.com/nikhilsos/jukedrummer.git",
+    "commit":  "cff13492d10427583492ba53196244adfdf60ce0"
+  },
+  "email":  "nikhiltesla@gmail.com",
+  "root":  "./wandb",
+  "host":  "ailab-2",
+  "executable":  "/home/nikhil/jukedrummer/jd1/bin/python3",
+  "writerId":  "g6s4w6jcrhd0x7qpifgefderae41w2an"
+}

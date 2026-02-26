@@ -1,0 +1,130 @@
+_wandb:
+    value:
+        cli_version: 0.22.3
+        e:
+            e6bu48j216abm613cvynvmbi6kt3fehc:
+                args:
+                    - --cuda
+                    - "0"
+                    - --exp_idx
+                    - "1"
+                    - --wandb
+                codePath: train_lm.py
+                codePathLocal: train_lm.py
+                cpu_count: 8
+                cpu_count_logical: 16
+                cudaVersion: "12.2"
+                disk:
+                    /:
+                        total: "3935276408832"
+                        used: "2326518165504"
+                email: nikhiltesla@gmail.com
+                executable: /home/nikhil/jukedrummer/jd1/bin/python3
+                git:
+                    commit: cff13492d10427583492ba53196244adfdf60ce0
+                    remote: https://github.com/nikhilsos/jukedrummer.git
+                gpu: NVIDIA GeForce RTX 4080
+                gpu_count: 2
+                gpu_nvidia:
+                    - architecture: Ada
+                      cudaCores: 9728
+                      memoryTotal: "17171480576"
+                      name: NVIDIA GeForce RTX 4080
+                      uuid: GPU-67b957d0-daf1-ca69-0e68-bdc9a4d58cf0
+                    - architecture: Ada
+                      cudaCores: 16384
+                      memoryTotal: "25757220864"
+                      name: NVIDIA GeForce RTX 4090
+                      uuid: GPU-88df9a8b-0150-f400-ef5e-2ebdec482a92
+                host: ailab-2
+                memory:
+                    total: "50426474496"
+                os: Linux-5.15.0-164-generic-x86_64-with-glibc2.35
+                program: /home/nikhil/jukedrummer/train_lm.py
+                python: CPython 3.12.1
+                root: ./wandb
+                startedAt: "2026-02-24T05:20:55.464497Z"
+                writerId: e6bu48j216abm613cvynvmbi6kt3fehc
+        m:
+            - "1": step
+              "6":
+                - 3
+              "7": []
+            - "1": train/loss
+              "5": 1
+              "6":
+                - 1
+                - 3
+              "7": []
+            - "1": valid/loss
+              "5": 1
+              "6":
+                - 1
+                - 3
+              "7": []
+            - "1": lr
+              "5": 1
+              "6":
+                - 1
+                - 3
+              "7": []
+        python_version: 3.12.1
+        t:
+            "1":
+                - 1
+                - 5
+                - 41
+                - 53
+            "2":
+                - 1
+                - 5
+                - 41
+                - 53
+            "3":
+                - 7
+                - 13
+                - 16
+            "4": 3.12.1
+            "5": 0.22.3
+            "12": 0.22.3
+            "13": linux-x86_64
+batch_size:
+    value: 16
+binfo_type:
+    value: mid
+blocks:
+    value: 16
+ckpt_dir:
+    value: ckpt/
+codebook_size:
+    value: 32
+commit_beta:
+    value: 0.25
+d_model:
+    value: 512
+dec_layers:
+    value: 9
+downsample_ratios:
+    value:
+        - 0.5
+        - 0.5
+dropout:
+    value: 0.2
+enc_layers:
+    value: 20
+heads:
+    value: 2
+name:
+    value: lm1
+num_classes:
+    value: 4
+path:
+    value: data/
+sample_step:
+    value: 10
+upsample_ratios:
+    value:
+        - 2
+        - 2
+vq_name:
+    value: vq1

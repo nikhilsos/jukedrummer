@@ -22,7 +22,7 @@ from madmom.features.downbeats import DBNDownBeatTrackingProcessor as DownBproc
 
 def getRNNembedding(rnn, audio_fea, device, head = 'mix'):
     ## convert nparray feature into tensor
-    print('audio feature', audio_fea.shape, type(audio_fea)) # debugging
+    # print('audio feature', audio_fea.shape, type(audio_fea)) # debugging
     in_fea = torch.tensor(audio_fea[np.newaxis, :, :]).float().to(device)
 
     rnn.eval()
@@ -74,32 +74,102 @@ def time2frame4onset(beat_est, ratio, hop_length=256, sr=44100):
         result[idx] = 1
     return result
 
-class BeatInfoExtractor():
+import os
+import numpy as np
+import librosa
 
+def load_downbeat_labels(audio_file_path, ratio=4, hop_length=256, sr=44100):
+    """
+    Load annotated downbeats and convert to fixed-length numeric array (shape=1024).
+    Returns zeros if annotation is missing or empty.
+    """
+    fname = os.path.basename(audio_file_path)
+    downbeat_annotation = os.path.join(
+        "/home/nikhil/jukedrummer/data/annots/",
+        fname.replace(".wav", ".beats")
+    )
+
+    # Return zeros if annotation missing
+    if not os.path.exists(downbeat_annotation):
+        return np.zeros(1024, dtype=np.float32)
+
+    beats = []
+    with open(downbeat_annotation, "r") as f:
+        for line in f:
+            parts = line.strip().split()
+            if len(parts) != 2:
+                continue
+            t, label = parts
+            if int(label) == 1:
+                beats.append(float(t))
+
+    # Return zeros if no beats found
+    if len(beats) == 0:
+        return np.zeros(1024, dtype=np.float32)
+
+    # Step 1: project to internal 4096-frame grid
+    base_len = 4096
+    activation = np.zeros(base_len, dtype=np.float32)
+    frame_idxs = librosa.time_to_frames(beats, sr=sr, hop_length=hop_length)
+    frame_idxs = frame_idxs[frame_idxs < base_len]
+    activation[frame_idxs] = 1.0
+
+    # Step 2: downsample to model sample length (1024)
+    activation = activation.reshape(base_len // ratio, ratio).max(axis=1)
+    activation = np.array(activation, dtype=np.float32)  # enforce numeric type
+
+    return activation  # shape = (1024,)
+
+# --------------------------
+# Beat Info Extractor
+# --------------------------
+class BeatInfoExtractor:
     def __init__(self, binfo_type, device, input_csv_path='src/drumaware_hmmparams.csv'):
-        self.hmm_proc, self.rnn = get_proc(input_csv_path, device)
         self.binfo_type = binfo_type
         self.device = device
 
+        # Only load RNN/HMM if needed
+        if self.binfo_type != 'dbeats':
+            self.hmm_proc, self.rnn = self.get_proc(input_csv_path, device)
+        else:
+            self.hmm_proc, self.rnn = None, None
+
     def __call__(self, audio_file_path):
+        if self.binfo_type == 'dbeats':
+            # Directly return numeric array
+            beat_info = load_downbeat_labels(audio_file_path)
+            return beat_info
+
+        # ---- normal audio-based extraction ----
         feat = utils.get_feature(audio_file_path)
-        # print(f'feature shape: {feat.shape}')
-        # [timestep, 314]
-     
-        out, out_fea = getRNNembedding(self.rnn, audio_fea=feat, device=self.device,
-                            head = 'nodrum')
+        out, out_fea = getRNNembedding(
+            self.rnn,
+            audio_fea=feat,
+            device=self.device,
+            head='nodrum'
+        )
         out = utils.prediction_conversion(out)
+
         if self.binfo_type == 'high':
             beat_est = self.hmm_proc(out)
             beat_info = time2frame4beat(beat_est, ratio=4)
+
         elif self.binfo_type == 'mid':
-            beats_spppk_tmp, _ = find_peaks(np.max(out, -1), height = 0.1, distance = 7, prominence = 0.1)
-            onset_est = beats_spppk_tmp/ 100
+            beats_spppk_tmp, _ = find_peaks(
+                np.max(out, -1),
+                height=0.1,
+                distance=7,
+                prominence=0.1
+            )
+            onset_est = beats_spppk_tmp / 100
             beat_info = time2frame4onset(onset_est, ratio=4)
+
         elif self.binfo_type == 'low':
             beat_info = out_fea
+
         else:
             beat_info = None
+
         return beat_info
 
 
@@ -133,15 +203,16 @@ def inference(fns, binfo_type, audio_dir, beat_dir, n_cuda):
         # if os.path.isfile(save_path):
         #     continue
         try:
-            # print(f'Processing file: {fn}')  # debugging
+            print(f'Processing file: {fn}')  # debugging
             beat_info = extractor(audio_file_path)
             ### save
             try:
+                beat_info = np.array(beat_info, dtype=np.float32)
                 np.save(save_path, beat_info)
             except Exception as e:
                     print(f"Error saving {save_path}: {e}")
-        except:
-            print(f'{fn} error occur during beat information extraction')
+        except Exception as e:
+            print(f'{fn} error occur during beat information extraction, {e}')
 
 def main(args):     
     data_dir = args.audio_dir

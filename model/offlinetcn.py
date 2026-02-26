@@ -12,6 +12,8 @@ Description: A CNN including a Temporal Convolutional Layer designed to predict
 """
 import torch
 import torch.nn as nn
+import sys
+# sys.path.append('/home/nikhil/projects/dbtracker/')
 from torch.nn.utils import weight_norm
 
 class NonCausalTemporalLayer(nn.Module):
@@ -311,10 +313,47 @@ class BeatNet_offlinetcn(nn.Module):
         else:
             return y
     
-# unit test
+def load_checkpoint(model, checkpoint_file, device="cpu"):
+    """
+    Load model weights from a checkpoint file.
 
-if __name__ == '__main__':
-    x = torch.rand(1, 1, 6000, 81)
-    model = BeatNet_offlinetcn()
-    _, y = model(x, return_embeddings = True)
-    print(_.shape, y.shape)
+    Args:
+        model (nn.Module): PyTorch model
+        checkpoint_file (str): Path to checkpoint file
+        device (str): 'cpu' or 'cuda'
+    """
+
+    checkpoint = torch.load(
+        checkpoint_file,
+        map_location=device
+    )
+
+    # Support both full checkpoints and raw state_dicts
+    if isinstance(checkpoint, dict) and "model" in checkpoint:
+        state_dict = checkpoint["model"]
+    else:
+        state_dict = checkpoint
+
+    model.load_state_dict(state_dict, strict=True)
+    model.to(device)
+    model.eval()
+
+    return model
+
+
+if __name__ == "__main__":
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    x = torch.rand(1, 1, 6000, 314).to(device)
+
+    model = BeatNet_offlinetcn(downbeats=True)
+
+    checkpoint_file = "/home/nikhil/jukedrummer/offline_tcn_vocals_csv"
+
+    model = load_checkpoint(model, checkpoint_file, device)
+
+    with torch.no_grad():
+        embeddings, output = model(x, return_embeddings=True)
+
+    print(embeddings.shape, output.shape)

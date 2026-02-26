@@ -61,8 +61,9 @@ class Solver:
         tgz = data[0].long().to(self.device)
         otz = data[1].long().to(self.device)
         ot_binfo = data[2].float().to(self.device)
+        j_info = data[3].float().to(self.device)
 
-        loss, pred = self.model(tgz, otz, ot_binfo)
+        loss, pred = self.model(tgz, otz, ot_binfo, class_id=j_info) 
 
         if training:
             loss.backward()
@@ -98,6 +99,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     hps = setup_lm_hparams(MODEL_LIST[args.exp_idx])
+    print(f"hps.binfo_type: {hps.binfo_type}") 
     if args.bs:
         hps.batch_size = args.bs
 
@@ -130,7 +132,7 @@ if __name__ == "__main__":
     if args.wandb:
         import wandb
         wandb.init(
-            project="JukeDrummer Language Model",
+            project="JukeDrummer Language Model beat and downbeat info paired training",
             name=f"exp{args.exp_idx}",
             config=dict(hps),
             dir="./wandb",
@@ -216,5 +218,5 @@ if __name__ == "__main__":
                     "shd": solver.shd.state_dict() if solver.shd else None,
                     "hps": dict(hps),
                 },
-                os.path.join(hps.ckpt_dir, f"exp{args.exp_idx}.pkl"),
+                os.path.join(hps.ckpt_dir, f"exp{args.exp_idx}_class_id.pkl"),
             )

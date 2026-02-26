@@ -25,7 +25,7 @@ import librosa
 import sys
 sys.path.append('/home/nikhil/projects/dbtracker/')
 
-from model.downbeat_model import BeatNet 
+from model.downbeat_model import BeatNet_offlinetcn as BeatNet 
 # from beat_tracking_tcn.models.offlinetcn import BeatNet
 # from beat_tracking_tcn.models.onlinetcn import BeatNet
 
@@ -159,14 +159,15 @@ def beat_activations_from_spectrogram(
                                     .float()
             
         # print(spectrogram_tensor.shape)
-        rtrn, embedding = model(spectrogram_tensor)
+        rtrn, embedding = downbeat_model(spectrogram_tensor) if downbeats\
+                       else model(spectrogram_tensor)
         # rp = [1,2,3]
         rtrn, embedding = rtrn.numpy(), embedding.numpy()
 
         # Forward the spectrogram through the model. Note there are no size
         # restrictions here, as the model is fully convolutional. 
-        return downbeat_model(spectrogram_tensor).numpy() if downbeats\
-               else rtrn, embedding
+        return rtrn, embedding
+
     
 def predict_beats_from_spectrogram(
         spectrogram,
@@ -201,18 +202,20 @@ def predict_beats_from_spectrogram(
 
     # Perform independent post-processing for downbeats
     if downbeats:
-        beat_activations = raw_activations[0]
-        downbeat_activations = raw_activations[1]
+        beat_activations = raw_activations.T[:, 0]
+        # downbeat_activations = raw_activations[]
+        # beat_activations = raw_activations
+        embeddings = embeddings.squeeze()
 
-        dbn.reset()
-        dbn(min_bpm, max_bpm)
-        predicted_beats = dbn.process_offline(beat_activations.squeeze())
+        # dbn.reset()
+        # # dbn(min_bpm, max_bpm)
+        # predicted_beats = dbn.process(beat_activations.squeeze(), min_bpm=min_bpm, max_bpm=max_bpm)
 
         downbeat_dbn.reset()
-        downbeat_dbn(min_bpm, max_bpm)
-        predicted_downbeats = downbeat_dbn.process_offline(downbeat_activations.squeeze())
+        # downbeat_dbn(min_bpm, max_bpm)
+        predicted_downbeats = downbeat_dbn.process_offline(beat_activations.squeeze())
 
-        return predicted_beats, predicted_downbeats
+        return predicted_downbeats, embeddings.T
     else:
         beat_activations = raw_activations
         # select min max bpm of dbn
@@ -223,6 +226,33 @@ def predict_beats_from_spectrogram(
 
         return predicted_beats, embeddings.T
 
+from madmom.audio.signal import SignalProcessor, FramedSignalProcessor
+from madmom.audio.stft import ShortTimeFourierTransformProcessor
+from madmom.audio.spectrogram import (
+            FilteredSpectrogramProcessor, LogarithmicSpectrogramProcessor,
+            SpectrogramDifferenceProcessor)
+from madmom.processors import ParallelProcessor, Processor, SequentialProcessor
+
+def madmom_feature(wav):
+    """ returns the madmom features mentioned in the paper"""
+    sig = SignalProcessor(num_channels=1, sample_rate=44100 )
+    multi = ParallelProcessor([])
+    frame_sizes = [1024, 2048, 4096]
+    num_bands = [3, 6, 12]
+    for frame_size, num_bands in zip(frame_sizes, num_bands):
+        frames = FramedSignalProcessor(frame_size=frame_size, fps=100)
+        stft = ShortTimeFourierTransformProcessor()  # caching FFT window
+        filt = FilteredSpectrogramProcessor(
+            num_bands=num_bands, fmin=30, fmax=17000, norm_filters=True)
+        spec = LogarithmicSpectrogramProcessor(mul=1, add=1)
+        diff = SpectrogramDifferenceProcessor(
+            diff_ratio=0.5, positive_diffs=True, stack_diffs=np.hstack)
+        # process each frame size with spec and diff sequentially
+        multi.append(SequentialProcessor((frames, stft, filt, spec, diff)))
+    # stack the features and processes everything sequentially
+    pre_processor = SequentialProcessor((sig, multi, np.hstack))
+    feature = pre_processor.process( wav)
+    return feature
 
 class beatTracker:
     def __init__(self, checkpoint_file=None, downbeats=True):
@@ -233,12 +263,14 @@ class beatTracker:
         """
         Load audio, compute spectrogram, and predict beats.
         """
-        mag_spectrogram = create_spectrogram(
-            input_file,
-            FFT_SIZE,
-            HOP_LENGTH_IN_SECONDS,
-            N_MELS
-        ).T
+        # mag_spectrogram = create_spectrogram(
+        #     input_file,
+        #     FFT_SIZE,
+        #     HOP_LENGTH_IN_SECONDS,
+        #     N_MELS
+        # ).T
+
+        mag_spectrogram = madmom_feature(input_file)
 
         return predict_beats_from_spectrogram(
             mag_spectrogram,

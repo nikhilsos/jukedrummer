@@ -34,15 +34,17 @@ def get_downbeats(fn, beat_proc, track_proc, root):
     # debugging
     return downbeats
 
-def get_downbeats_pansori(fn, checkpoint_file=None, downbeats=False, root = None):
-    # downbeats = beat
+def get_downbeats_pansori(fn, checkpoint_file=None, downbeats=False, root=None):
     fn = os.path.join(root, 'target', fn) if root else fn
-    beat_results = [beatTracker(fn, checkpoint_file=checkpoint_file, downbeats=False)]
-    
 
+    tracker = beatTracker(
+        checkpoint_file=checkpoint_file,
+        downbeats=downbeats
+    )
 
-    # print(beat_results.shape, type(beat_results)) # debugging
+    beat_results = tracker(fn)
     return beat_results
+
 
 
 def segmentation(fn, downbeats, length, audio_dir):
@@ -102,7 +104,94 @@ def segmentation(fn, downbeats, length, audio_dir):
         write_segment(others_s, drums_s, count)
         count += 1
 
-def inference(fns, seg_by_downbeats, length, audio_dir):
+# import os
+# import librosa
+# import soundfile as sf
+# import numpy as np
+
+
+# def segmentation(fn, downbeats, length, audio_dir, sr=44100):
+
+#     os.makedirs('data/segment_audio/others', exist_ok=True)
+#     os.makedirs('data/segment_audio/target', exist_ok=True)
+
+#     others_path = os.path.join(audio_dir, 'others', fn)
+#     drums_path = os.path.join(audio_dir, 'target', fn)
+
+#     if not os.path.exists(others_path) or not os.path.exists(drums_path):
+#         return
+
+#     others, _ = librosa.load(others_path, sr=sr)
+#     drums, _ = librosa.load(drums_path, sr=sr)
+
+#     # Equalize source lengths
+#     max_len = max(len(others), len(drums))
+#     others = pad_to(others, max_len)
+#     drums = pad_to(drums, max_len)
+
+#     base = os.path.splitext(fn)[0]
+
+#     def write_segment(start_sample, count):
+#         end_sample = start_sample + length
+
+#         others_s = others[start_sample:end_sample]
+#         drums_s = drums[start_sample:end_sample]
+
+#         others_s = pad_to(others_s, length)
+#         drums_s = pad_to(drums_s, length)
+
+#         sf.write(f'data/segment_audio/others/{base}_{count}.wav', others_s, sr)
+#         sf.write(f'data/segment_audio/target/{base}_{count}.wav', drums_s, sr)
+
+#     # --------------------------------------------------
+#     # CASE 1: No downbeat conditioning
+#     # --------------------------------------------------
+#     if downbeats is None:
+#         count = 0
+#         for pos in range(0, max_len, length):
+#             write_segment(pos, count)
+#             count += 1
+#         return
+
+#     # --------------------------------------------------
+#     # CASE 2: Downbeat-based segmentation
+#     # --------------------------------------------------
+
+#     downbeats = sorted(list(downbeats)) if downbeats else []
+
+#     # If empty → fallback to hop segmentation
+#     if len(downbeats) == 0:
+#         count = 0
+#         for pos in range(0, max_len, length):
+#             write_segment(pos, count)
+#             count += 1
+#         return
+
+#     count = 0
+#     valid_segments = 0
+
+#     for start in downbeats:
+#         start_sample = int(round(start * sr))
+
+#         # Skip negative or invalid
+#         if start_sample < 0:
+#             continue
+
+#         # Clamp to valid range
+#         if start_sample >= max_len:
+#             continue
+
+#         write_segment(start_sample, count)
+#         count += 1
+#         valid_segments += 1
+
+#     # --------------------------------------------------
+#     # Ensure at least one segment exists
+#     # --------------------------------------------------
+#     if valid_segments == 0:
+#         write_segment(0, 0)
+
+def inference(fns, seg_by_downbeats, length, audio_dir, pansori=False):
     print('step 1: data segment')
     if seg_by_downbeats:
         
@@ -110,6 +199,7 @@ def inference(fns, seg_by_downbeats, length, audio_dir):
         track_proc = DBNDownBeatTrackingProcessor(beats_per_bar=[3, 4], fps=100)
 
     printed = False
+
     
     for fn in tqdm(fns):
         if seg_by_downbeats:
@@ -134,8 +224,7 @@ def inference_pansori(fns, seg_by_downbeats, length, audio_dir):
             downbeats = get_downbeats_pansori(fn, checkpoint_file='/home/nikhil/jukedrummer/offline_tcn', downbeats=False, root=audio_dir)
             # convert the list to list of float64s
             downbeats = downbeats[0]
-            downbeats = [float(db) for db in downbeats]
-           
+            downbeats = [float(db) for db in downbeats]          
 
         else:
             print('segmentation by hop window')

@@ -15,9 +15,9 @@ python3 train.py \
     --input_wavs_dir /home/nikhil/jukedrummer/data/segment_audio/target/ \
     --input_training_file /home/nikhil/jukedrummer/data/segment_audio/training.txt \
     --input_validation_file /home/nikhil/jukedrummer/data/segment_audio/validation.txt \
-    --checkpoint_path /home/nikhil/jukedrummer/hifi_gan/cp_hifigan_pansori/ \
+    --checkpoint_path /home/nikhil/jukedrummer/hifi_gan/cp_hifigan_pansori\
     --cuda 1 \
     --input_mels_dir /home/nikhil/jukedrummer/data/mel_from_tokens_vq1/ \
-    --fine_tuning False
+    --fine_tuning True
     # --input_mels_dir /home/nikhil/jukedrummer/hifi_gan/ft_dataset/target \
     # --input_mels_dir /home/nikhil/jukedrummer/hifi_gan/ft_dataset \
