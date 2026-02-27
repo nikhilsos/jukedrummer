@@ -61,7 +61,7 @@ class Solver:
         tgz = data[0].long().to(self.device)
         otz = data[1].long().to(self.device)
         ot_binfo = data[2].float().to(self.device)
-        j_info = data[3].float().to(self.device)
+        j_info = data[3].long().to(self.device)
 
         loss, pred = self.model(tgz, otz, ot_binfo, class_id=j_info) 
 

@@ -127,22 +127,27 @@ class JukeTransformer(nn.Module):
         elif self.binfo_type is None:
             binfo = None
 
-        if class_id is not None:
-            cls_emb = self.class_emb(class_id.long())
-            cls_emb = cls_emb.unsqueeze(1)
-            if binfo is not None:
-                binfo = binfo + cls_emb
-            else:
-                binfo = cls_emb.expand(-1, self.prior.encoder_dims, -1)
+        # if class_id is not None:
+        #     cls_emb = self.class_emb(class_id.long())
+        #     cls_emb = cls_emb.unsqueeze(1)
+        #     if binfo is not None:
+        #         binfo = binfo + cls_emb
+        #     else:
+        #         binfo = cls_emb.expand(-1, self.prior.encoder_dims, -1)
 
         return binfo
     
+    def get_class_cond(self,class_id):
+        if class_id is not None:
+            return self.class_emb(class_id.long()).unsqueeze(1) # [B,1, d_model]
+        return None
 
     def forward(self, tgz, otz, binfo=None, class_id=None):
         binfo = self.binfo_conditioner(binfo, class_id)
         # print(otz.shape, binfo.shape, 'otz and binfo shape in llm forward') # debugging
+        y_cond = self.get_class_cond(class_id)
         encoder_kv = self.get_encoder_kv(otz, binfo)
-        loss, pred = self.prior(tgz, x_cond=binfo, y_cond=None, encoder_kv=encoder_kv, fp16=False, loss_full=False,
+        loss, pred = self.prior(tgz, x_cond=binfo, y_cond=y_cond, encoder_kv=encoder_kv, fp16=False, loss_full=False,
                     encode=False, get_preds=True, get_acts=False, get_sep_loss=False)
         return loss, pred, 
     
@@ -154,7 +159,8 @@ class JukeTransformer(nn.Module):
             # print(f"otz min={otz.min().item()}, max={otz.max().item()}")  # CPU-safe
             binfo = self.binfo_conditioner(binfo, class_id)
             encoder_kv = self.get_encoder_kv(otz, binfo)
-            pred = self.prior.sample(n_samples, x_cond=binfo, y_cond=None,
+            y_cond = self.get_class_cond(class_id)
+            pred = self.prior.sample(n_samples, x_cond=binfo, y_cond=y_cond,
                 encoder_kv=encoder_kv, fp16=False, temp=temp, top_k=top_k, top_p=top_p,
                 get_preds=False, sample_tokens=None, device=otz.device
             )
@@ -207,7 +213,7 @@ class JukeTransformer(nn.Module):
                                 checkpoint_mlp=hps.prime_c_mlp if hps.train else 0)
         
         self.hps = hps
-        self.prior = ConditionalAutoregressive2D(x_cond=args.binfo_type is not None, y_cond=False, encoder_dims = sequence_length, 
+        self.prior = ConditionalAutoregressive2D(x_cond=args.binfo_type is not None, y_cond=True, encoder_dims = sequence_length, 
                                                     pos_emb=None, **prior_kwargs)
         self.prime_prior = ConditionalAutoregressive2D(x_cond=args.binfo_type is not None, y_cond=False, only_encode=True, 
                                                     mask=False, pos_emb=None, **prime_kwargs)
