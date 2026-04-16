@@ -37,6 +37,7 @@ class PositionEmbedding(nn.Module):
         return pos_emb
 
 import math 
+
 class PositionalEncoding(nn.Module):
 
     def __init__(self, input_shape, width: int, init_scale=1.0, pos_init=False):
@@ -57,6 +58,28 @@ class PositionalEncoding(nn.Module):
         
         return self.pe
 
+class RopePositionalEncoding(nn.Module):
+
+    def __init__(self, input_shape, width: int, init_scale=1.0, pos_init=False):
+        super().__init__()
+
+        self.width = width
+        self.input_dims = np.prod(input_shape)
+
+    def forward(self, x):
+        # x is (N, L, D)
+        N, L, D = x.shape
+        assert D == self.width
+        assert L <= self.input_dims
+
+        position = torch.arange(L).unsqueeze(1).to(x.device)
+        div_term = torch.exp(torch.arange(0, self.width, 2) * (-math.log(10000.0) / self.width)).to(x.device)
+        pe = torch.zeros(1, L, self.width).to(x.device)
+        pe[0, :, 0::2] = torch.sin(position * div_term)
+        pe[0, :, 1::2] = torch.cos(position * div_term)
+
+        return pe
+    
 class ConditionalAutoregressive2D(nn.Module):
     def __init__(self, input_shape, bins,
                  width=128, depth=2, heads=1,

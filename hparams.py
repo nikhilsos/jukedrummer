@@ -13,7 +13,8 @@ MODEL_LIST = {
     11: ('vq1', 'lm9'),
     12: ('vq1', 'lm10'),
     21: ('vq4', 'lm1'),
-    22: ('vq4', 'lm9')
+    22: ('vq4', 'lm9'),
+    23: ('vq1', 'lm11'),
 }
 class Hyperparams(dict):
     def __getattr__(self, attr):
@@ -26,11 +27,11 @@ LM_DEFAULTS = Hyperparams(
     batch_size=16,
     sample_step=10,
     ckpt_dir='ckpt/',
-    path='data/',
+    path='data_jd/',
 )
 
 VQ_DEFAULTS = Hyperparams(
-    batch_size=32,
+    batch_size=4,
     sample_step=50,
     ckpt_dir='ckpt/',
     path='data/',
@@ -74,7 +75,7 @@ OPT = Hyperparams(
     lr_scale=1.0,
     lr_use_linear_decay=False,
     lr_start_linear_decay=0,
-    lr_use_cosine_decay=True,
+    lr_use_cosine_decay=False,
     fp16_opt = False,
     prior = True,
     restore_prior = '',
@@ -93,9 +94,9 @@ MEL = Hyperparams(
 )
 
 vq1 = Hyperparams(
-    # codebook 32 | 1024 
+    # codebook 512 | 1024
     name = 'vq1',
-    codebook_size = 32,
+    codebook_size = 512,
     upsample_ratios = [2, 2],
     downsample_ratios = [0.5, 0.5],
     commit_beta = 0.25,
@@ -136,14 +137,14 @@ HPARAMS_REGISTRY['vq4'] = vq4
 lm1 = Hyperparams(
     # Raw beat activation (Low-level) w/o in-attention
     name = 'lm1',
-    enc_layers = 6,
-    dec_layers= 6,
+    enc_layers = 20,
+    dec_layers= 9,
     d_model= 512,
-    dropout = 0.5,
-    heads = 2,
+    dropout = 0.4,
+    heads = 4,
     blocks = 16,
     num_classes = 4,
-    binfo_type = 'dbeats' # default = low
+    binfo_type = 'mid' # default = low
 )
 HPARAMS_REGISTRY['lm1'] = lm1
 
@@ -272,6 +273,26 @@ lm10 = Hyperparams(
     binfo_type = None,
 )
 HPARAMS_REGISTRY['lm10'] = lm10
+
+lm11 = Hyperparams(
+    # Pansori downbeat phase (dphase) conditioning via sin/cos projection
+    name = 'lm11',
+    path = 'data/',
+    enc_layers = 20,
+    dec_layers= 9,
+    d_model= 512,
+    dropout = 0.4,
+    heads = 4,
+    blocks = 16,
+    num_classes = 4,
+    binfo_type = 'dphase',
+    lambda_p = 0.2,       # perceptual loss weight
+    tau = 0.5,            # softmax temperature for soft codebook lookup (lower = sharper)
+    focal_gamma = 2.0,    # focal loss focusing parameter (0 = standard CE)
+    lambda_fad = 0.01,    # FAD loss weight
+    fad_diagonal = True,  # diagonal covariance (stable); set False for full covariance
+)
+HPARAMS_REGISTRY['lm11'] = lm11
 
 
 

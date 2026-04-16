@@ -9,41 +9,56 @@ import sys
 sys.path.append('/home/nikhil/projects/dbtracker/')
 
 from segmentation import inference as data_segmentation
-from utils.melspec import inference as melspec_extraction
 from subset_division import inference as subset_division
-from beats import inference as beat_info_extraction
+
+# Use local melspec and dphase extraction — consistent with hparams.py MEL config
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from utils.melspec import inference as melspec_extraction
 # import logging
 
 # logging.basicConfig(filename='test.log', level=logging.DEBUG,
 #                     format='%(asctime)s:%(levelname)s:%(message)s')
 
+def clear_segments(segment_audio_dir):
+    for split in ('target', 'others'):
+        split_dir = os.path.join(segment_audio_dir, split)
+        if not os.path.isdir(split_dir):
+            continue
+        removed = 0
+        for f in os.listdir(split_dir):
+            if f.endswith('.wav'):
+                os.remove(os.path.join(split_dir, f))
+                removed += 1
+        print(f'Cleared {removed} wav files from {split_dir}')
+
 def main(args):
     # segment -> mel extract -> div subset -> beat information extract
     audio_dir = args.audio_dir
     mel_dir = args.mel_dir
-    beat_dir= args.beat_dir
     segment_audio_dir = args.segment_audio_dir
     print(args.segment_by_downbeats)
 
-    # length = 8192 * 8 * 4 * 4 # This variation is recommended to be fixed
-    # fns = os.listdir(os.path.join(audio_dir, 'target'))
+    # Clear stale segments before re-segmenting
+    clear_segments(segment_audio_dir)
+
+    length = 8192 * 8 * 4 * 4 # This variation is recommended to be fixed
+    fns = os.listdir(os.path.join(audio_dir, 'target'))
     # # fns = fns[60]
-    # fns = [f for f in fns if f.endswith('.wav')]
+    fns = [f for f in fns if f.endswith('.wav')]
     # fns = fns[:60]
     # # 1. Segmentation by either downbeats or hop window
-    # data_segmentation(fns, args.segment_by_downbeats, length, audio_dir)
+    data_segmentation(fns, args.segment_by_downbeats, length, audio_dir)
 
     fns = os.listdir(os.path.join(segment_audio_dir, 'target'))
 
     fns = [f for f in fns if f.endswith('.wav')]
     # # # # # # 2. Extract Mel spectrograms from segemented audio waves
-    # melspec_extraction(fns, segment_audio_dir, mel_dir)
+    melspec_extraction(fns, segment_audio_dir, mel_dir)
     # # # # 3. Divide dataset into train & valid subset
-    # subset_division(mel_dir, args.dataset_pkl_path)
+    subset_division(mel_dir, args.dataset_pkl_path)
     #TODO: Integrate timbral features extraction here
     
-    # 4. Beat Information Extraction
-    beat_info_extraction(fns, 'dbeats', segment_audio_dir, beat_dir, args.cuda)
+    # 4. dphase token extraction — handled by extract_dphase_tokens.py (run separately)
 
 
 

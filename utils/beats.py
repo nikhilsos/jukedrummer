@@ -78,6 +78,148 @@ import os
 import numpy as np
 import librosa
 
+# Jangdan type metadata: filename prefix → (beats_per_cycle, bpm_range_at_beat_level)
+# beats_per_cycle: how many librosa-level beats make one full jangdan cycle
+# bpm_range: expected tempo range at the beat level librosa will detect
+_JANGDAN_META = {
+    'jy':  (18, (60,  150)),  # jinyangjo     – very slow, 18 beats/cycle
+    'zm':  (12, (50,  100)),  # jungmori       – moderate,  12 beats/cycle
+    'zz':  (12, (80,  140)),  # jungjungmori   – medium-fast, 12 beats/cycle
+    'za':  (12, (120, 200)),  # jajinmori      – fast,       12 beats/cycle
+}
+
+def _jangdan_meta(fname):
+    """Return (beats_per_cycle, bpm_range) from a filename like jy_10.wav.
+    Files without a known prefix are assumed to be jungmori (12 beats/cycle).
+    """
+    stem = os.path.splitext(os.path.basename(fname))[0]
+    for prefix in sorted(_JANGDAN_META, key=len, reverse=True):   # longest first
+        if stem.startswith(prefix + '_'):
+            return _JANGDAN_META[prefix]
+    return _JANGDAN_META['zm']   # default: jungmori
+
+
+def _downbeat_times_to_phase(beat_times, out_len=1024, ratio=4, hop_length=256, sr=44100):
+    """
+    Convert a list of downbeat times (seconds) to a sawtooth phase array.
+
+    Phase ramps linearly 0→1 between consecutive downbeats, then resets.
+    Shape: (out_len,) float32 in [0, 1].
+    Returns zeros if beat_times is empty.
+
+    At inference time only a single chunk is available, so the last cycle
+    is estimated using the average inter-downbeat interval (same as the
+    end-of-song case in extract_dphase_tokens.py). Frames beyond the
+    estimated cycle end are zeroed out to avoid stretching into silence.
+    """
+    if len(beat_times) == 0:
+        return np.zeros(out_len, dtype=np.float32)
+
+    effective_hop = hop_length * ratio   # samples per output frame
+    frame_idxs = librosa.time_to_frames(
+        np.array(beat_times), sr=sr, hop_length=effective_hop
+    )
+    frame_idxs = np.clip(frame_idxs, 0, out_len - 1)
+
+    # Average inter-downbeat interval for last-cycle estimation
+    if len(frame_idxs) > 1:
+        avg_cycle = int(np.mean(np.diff(frame_idxs)))
+    else:
+        avg_cycle = out_len  # fallback: single downbeat
+
+    # Estimate where the last cycle ends (no next-chunk info at inference time)
+    estimated_next = frame_idxs[-1] + avg_cycle
+    last_cycle_end = min(estimated_next, out_len)
+    audio_ends_at  = last_cycle_end  # zero out frames beyond estimated end
+
+    phase = np.zeros(out_len, dtype=np.float32)
+
+    # Frames before the first downbeat: extrapolate backward
+    if frame_idxs[0] > 0:
+        pre_len = frame_idxs[0]
+        cycle = (frame_idxs[1] - frame_idxs[0]) if len(frame_idxs) > 1 else avg_cycle
+        start_phase = max(0.0, 1.0 - pre_len / max(cycle, 1))
+        phase[:pre_len] = np.linspace(start_phase, 1.0, pre_len, endpoint=False)
+
+    for i in range(len(frame_idxs)):
+        start = frame_idxs[i]
+        end   = frame_idxs[i + 1] if i + 1 < len(frame_idxs) else last_cycle_end
+        end   = min(end, out_len)
+        if end > start:
+            phase[start:end] = np.linspace(0.0, 1.0, end - start, endpoint=False)
+
+    # Zero out frames after estimated audio end (silence / zero-padding region)
+    if audio_ends_at < out_len:
+        phase[audio_ends_at:] = 0.0
+
+    return phase
+
+
+def load_downbeat_phase(audio_file_path, annot_dir=None, ratio=4, hop_length=256, sr=44100):
+    """
+    Load annotated downbeats and convert to a sawtooth phase array (shape 1024).
+
+    Values are in [0, 1]: phase ramps 0→1 between consecutive downbeats.
+    Falls back to zeros when the annotation file is missing.
+    """
+    if annot_dir is None:
+        annot_dir = "/home/nikhil/jukedrummer/data/annots/"
+
+    fname = os.path.basename(audio_file_path)
+    annot_path = os.path.join(annot_dir, fname.replace(".wav", ".beats"))
+
+    if not os.path.exists(annot_path):
+        return np.zeros(1024, dtype=np.float32)
+
+    beat_times = []
+    with open(annot_path) as f:
+        for line in f:
+            parts = line.strip().split()
+            if len(parts) == 2:
+                beat_times.append(float(parts[0]))   # label is always 1, skip it
+
+    return _downbeat_times_to_phase(beat_times, out_len=1024, ratio=ratio,
+                                    hop_length=hop_length, sr=sr)
+
+
+class PansoriPhaseExtractor:
+    """
+    Inference-time downbeat phase extractor for pansori audio.
+
+    Uses librosa beat tracking with per-jangdan tempo priors, then
+    subsamples every beats_per_cycle beats to obtain downbeat times.
+    """
+    def __init__(self, sr=44100, hop_length=256, ratio=4):
+        self.sr = sr
+        self.hop_length = hop_length
+        self.ratio = ratio
+
+    def __call__(self, audio_file_path):
+        beats_per_cycle, (bpm_lo, bpm_hi) = _jangdan_meta(audio_file_path)
+        start_bpm = (bpm_lo + bpm_hi) / 2.0
+
+        y, _ = librosa.load(audio_file_path, sr=self.sr, mono=True)
+
+        # scipy.signal.hann was moved to scipy.signal.windows.hann in newer scipy
+        import scipy.signal
+        if not hasattr(scipy.signal, 'hann'):
+            scipy.signal.hann = scipy.signal.windows.hann
+
+        tempo, beat_frames = librosa.beat.beat_track(
+            y=y, sr=self.sr, hop_length=self.hop_length,
+            start_bpm=start_bpm, units='time'
+        )
+        beat_times = beat_frames   # already in seconds when units='time'
+
+        # Subsample to downbeats: take every beats_per_cycle-th beat
+        downbeat_times = beat_times[::beats_per_cycle]
+
+        return _downbeat_times_to_phase(
+            downbeat_times, out_len=1024,
+            ratio=self.ratio, hop_length=self.hop_length, sr=self.sr
+        )
+
+
 def load_downbeat_labels(audio_file_path, ratio=4, hop_length=256, sr=44100):
     """
     Load annotated downbeats and convert to fixed-length numeric array (shape=1024).
@@ -129,16 +271,25 @@ class BeatInfoExtractor:
         self.device = device
 
         # Only load RNN/HMM if needed
-        if self.binfo_type != 'dbeats':
+        if self.binfo_type not in ('dbeats', 'dphase'):
             self.hmm_proc, self.rnn = self.get_proc(input_csv_path, device)
         else:
             self.hmm_proc, self.rnn = None, None
 
+        if self.binfo_type == 'dphase':
+            self._pansori_extractor = PansoriPhaseExtractor()
+
     def __call__(self, audio_file_path):
         if self.binfo_type == 'dbeats':
-            # Directly return numeric array
             beat_info = load_downbeat_labels(audio_file_path)
             return beat_info
+
+        if self.binfo_type == 'dphase':
+            # Use annotation if available, otherwise fall back to audio tracking
+            phase = load_downbeat_phase(audio_file_path)
+            if phase.max() == 0.0:   # no annotation found → use audio tracker
+                phase = self._pansori_extractor(audio_file_path)
+            return phase
 
         # ---- normal audio-based extraction ----
         feat = utils.get_feature(audio_file_path)
@@ -173,22 +324,22 @@ class BeatInfoExtractor:
         return beat_info
 
 
-def get_proc(input_csv_path, device):
-    df = pd.read_csv(input_csv_path)
-    modelinfo_list = utils.df2eval_dictlist(df, withMadmom =False)
-    select_model = [i for i in modelinfo_list if i['model_type']=='DA2']
-    model_info = select_model[0]
-    hmm_proc = DownBproc(beats_per_bar = [3, 4], min_bpm = 60, 
-                             max_bpm = 200, num_tempi = model_info['n_tempi'], 
-                             transition_lambda = model_info['transition_lambda'], 
-                             observation_lambda = model_info['observation_lambda'], 
-                             threshold = model_info['threshold'], fps = 100)
-    model_setting = model_info['model_setting']
-    rnn = DA2(**eval(model_setting))
-    model_path = os.path.join('ckpt/' , 'RNNBeatProc.pth')
-    state = torch.load(model_path, map_location=device, weights_only=True)
-    rnn.load_state_dict(state)
-    return hmm_proc, rnn
+    def get_proc(self, input_csv_path, device):
+        df = pd.read_csv(input_csv_path)
+        modelinfo_list = utils.df2eval_dictlist(df, withMadmom =False)
+        select_model = [i for i in modelinfo_list if i['model_type']=='DA2']
+        model_info = select_model[0]
+        hmm_proc = DownBproc(beats_per_bar = [3, 4], min_bpm = 60, 
+                                max_bpm = 200, num_tempi = model_info['n_tempi'], 
+                                transition_lambda = model_info['transition_lambda'], 
+                                observation_lambda = model_info['observation_lambda'], 
+                                threshold = model_info['threshold'], fps = 100)
+        model_setting = model_info['model_setting']
+        rnn = DA2(**eval(model_setting))
+        model_path = os.path.join('ckpt/' , 'RNNBeatProc.pth')
+        state = torch.load(model_path, map_location=device, weights_only=True)
+        rnn.load_state_dict(state)
+        return hmm_proc, rnn
 
 def inference(fns, binfo_type, audio_dir, beat_dir, n_cuda):
     print('step 4: extract beat information')

@@ -6,6 +6,7 @@ import numpy as np
 
 from einops.layers.torch import Rearrange
 from jukebox.jukebox.vqvae.bottleneck import BottleneckBlock
+from jukebox.jukebox.vqvae.vqvae import VQVAE as JukeboxVQVAE
 
 class RCBlock(nn.Module):
     def __init__(self, output_dim, ks, dilation, num_groups):
@@ -118,47 +119,50 @@ class VQVAE(nn.Module):
         self.decoder = decoder 
         self.norm = nn.LayerNorm(64) # added later
 
-    def forward(self, x):
-        """
-        Args:
-        x shape: (bs, dimension, frame_length)
-        """
-        # x = self.encoder(x)
-        # x_l, x_d, commit_loss, metric = self.vq(x)
-        # x = self.decoder(x_d)
-        # return x, commit_loss, metric
-
-        x = self.encoder(x)
-        # print("Pre-normalization:", x.mean().item(), x.std().item(), x.min().item(), x.max().item())
-        x = x.permute(0, 2, 1) # LayerNorm expects [B, T, C]
-        x = self.norm(x)
-        x = x.permute(0, 2, 1) # Return to [B, C, T]
-        # print("Post-normalization:", x.mean().item(), x.std().item(), x.min().item(), x.max().item())
-
-        x_l, x_d, commit_loss, metric = self.vq(x)
-
-        metric['token_len'] = x_l.shape[-1]
-
-        x = self.decoder(x_d)                 # reconstructs to [B, 80, T]
-        return x, commit_loss, metric
-
     # def forward(self, x):
     #     """
-    #     x: (B, D, T)
+    #     Args:
+    #     x shape: (bs, dimension, frame_length)
     #     """
-    #     x = self.encoder(x)  # [B, 64, T]
+    #     # x = self.encoder(x)
+    #     # x_l, x_d, commit_loss, metric = self.vq(x)
+    #     # x = self.decoder(x_d)
+    #     # return x, commit_loss, metric
 
-    #     # Instead of hard L2 normalization, rescale to match typical latent std
-    #     latent_std_target = 1  # roughly matches your pre-normalization std
-    #     current_std = x.std(dim=(0,2), keepdim=True) + 1e-8
-    #     x = x / current_std * latent_std_target
+    #     x = self.encoder(x)
+    #     # print("Pre-normalization:", x.mean().item(), x.std().item(), x.min().item(), x.max().item())
+    #     x = x.permute(0, 2, 1) # LayerNorm expects [B, T, C]
+    #     x = self.norm(x)
+    #     x = x.permute(0, 2, 1) # Return to [B, C, T]
+    #     # print("Post-normalization:", x.mean().item(), x.std().item(), x.min().item(), x.max().item())
 
-    #     # Quantize
     #     x_l, x_d, commit_loss, metric = self.vq(x)
-    #     metric['token_len'] = x_l.shape[-1]
 
-    #     x = self.decoder(x_d)
+    #     metric['token_len'] = x_l.shape[-1]
+    #     metric['x_d'] = x_d # while using hierarchical VQ-VAE, we will need the quantized latents for the next level's input    
+
+    #     x = self.decoder(x_d)                 # reconstructs to [B, 80, T]
     #     return x, commit_loss, metric
+
+    def forward(self, x):
+        """
+        x: (B, D, T)
+        """
+        x = self.encoder(x)  # [B, 64, T]
+
+        # Instead of hard L2 normalization, rescale to match typical latent std
+        latent_std_target = 1  # roughly matches your pre-normalization std
+        current_std = x.std(dim=(0,2), keepdim=True) + 1e-8
+        x = x / current_std * latent_std_target
+
+        # Quantize
+        x_l, x_d, commit_loss, metric = self.vq(x)
+        metric['token_len'] = x_l.shape[-1]
+
+        x = self.decoder(x_d)
+        return x, commit_loss, metric
+
+
 
 
 
@@ -169,6 +173,9 @@ class VQVAE(nn.Module):
         # encode as tokens (LongTensor)
         self.eval()
         x = self.encoder(x)
+        x = x.permute(0, 2, 1)
+        x = self.norm(x)
+        x = x.permute(0, 2, 1)
         x_l = self.vq.encode(x)
         return x_l
     
@@ -197,3 +204,22 @@ class VQVAE(nn.Module):
 
 
 
+class VQVAE_Jukebox(JukeboxVQVAE):
+    def __init__(self, codebook_size, encoder=None, decoder=None, device=None):
+        super().__init__(
+            codebook_size=codebook_size,
+            encoder=encoder,
+            decoder=decoder,
+            device=device
+        )
+
+    def forward(self, x):
+        """
+        Args:
+        x shape: (bs, dimension, frame_length)
+        """
+        x = self.encoder(x)
+        x_l, x_d, commit_loss, metric = self.vq(x)
+        metric['token_len'] = x_l.shape[-1]
+        x = self.decoder(x_d)
+        return x, commit_loss, metric

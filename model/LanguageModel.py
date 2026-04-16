@@ -62,6 +62,7 @@ from jukebox.jukebox.transformer.ops import Conv1D, LayerNorm
 class JukeTransformer(nn.Module):
     def __init__(self, args):
         super().__init__()
+        self.num_classes = getattr(args, 'num_classes', None)
         self.make_juke_prior(args)
         self.use_tokens = args.name != 'lm9' and args.name != 'lm10'
         # print(f'use tokens:{self.use_tokens}')
@@ -69,19 +70,29 @@ class JukeTransformer(nn.Module):
         self.prime_state_ln = LayerNorm(args.d_model)
         self.binfo_type = args.binfo_type
 
-        self.num_classes = getattr(args, 'num_classes', 4)
-        self.class_emb = nn.Embedding(self.num_classes, args.d_model)
+        if self.num_classes:
+            self.class_emb = nn.Embedding(self.num_classes, args.d_model)
 
-
+        # token_weight_path = getattr(args, 'token_weight_path', None)
+        # if token_weight_path is not None:
+        #     weights = np.load(token_weight_path).astype(np.float32)
+        #     self.register_buffer('token_weights', torch.from_numpy(weights))
+        # else:
+        #     self.token_weights = None
 
         if self.binfo_type == 'low':
-            self.bact_state_proj = Conv1D(16, args.d_model) # changed from 50 to 1 for pansori beat
+            self.bact_state_proj = Conv1D(50, args.d_model) # changed from 50 to 1 for pansori beat
         elif self.binfo_type == 'mid':
             self.onset_emb = nn.Embedding(2, args.d_model)
         elif self.binfo_type == 'high':
             self.beat_emb = nn.Embedding(3, args.d_model)
         elif self.binfo_type == 'dbeats':
             self.beat_emb = nn.Embedding(3, args.d_model)
+        elif self.binfo_type == 'dphase':
+            # Projects 2-channel sin/cos phase encoding to d_model.
+            # Sin/cos makes the representation cyclic: phase 0 and 1 both map
+            # to [sin=0, cos=1], so the model sees no jump at the downbeat.
+            self.phase_proj = nn.Linear(2, args.d_model)
         elif self.binfo_type is None:
             pass
         else:
@@ -110,9 +121,9 @@ class JukeTransformer(nn.Module):
             encoder_kv = None
         return encoder_kv
     
-    def binfo_conditioner(self, binfo, class_id=None):
+    def binfo_conditioner(self, binfo):
         if self.binfo_type == 'low':
-            binfo = F.interpolate(binfo.unsqueeze(1), size=(self.prior.encoder_dims, 16)).squeeze(1)
+            binfo = F.interpolate(binfo.unsqueeze(1), size=(self.prior.encoder_dims, 50)).squeeze(1)
             binfo = self.bact_state_proj(binfo)
         elif self.binfo_type == 'mid':
             binfo = self.onset_emb(binfo.long())
@@ -120,53 +131,90 @@ class JukeTransformer(nn.Module):
             binfo = binfo.double()
             binfo = torch.where(binfo > 1, 2., binfo)
             binfo = self.beat_emb(binfo.long())
-        elif self.binfo_type == 'dbeats':          # ← was missing!
+        elif self.binfo_type == 'dbeats':
             binfo = binfo.double()
             binfo = torch.where(binfo > 1, 2., binfo)
             binfo = self.beat_emb(binfo.long())
+        elif self.binfo_type == 'dphase':
+            # binfo: (B, T) float in [0, 1] — sawtooth phase between downbeats
+            # Encode as sin/cos so phase 0 ≡ phase 1 (both are the downbeat)
+            phase = binfo.float() * (2 * math.pi)          # (B, T)
+            phase_enc = torch.stack([torch.sin(phase), torch.cos(phase)], dim=-1)  # (B, T, 2)
+            binfo = self.phase_proj(phase_enc)              # (B, T, d_model)
         elif self.binfo_type is None:
             binfo = None
 
-        # if class_id is not None:
-        #     cls_emb = self.class_emb(class_id.long())
-        #     cls_emb = cls_emb.unsqueeze(1)
-        #     if binfo is not None:
-        #         binfo = binfo + cls_emb
-        #     else:
-        #         binfo = cls_emb.expand(-1, self.prior.encoder_dims, -1)
-
         return binfo
-    
-    def get_class_cond(self,class_id):
-        if class_id is not None:
-            return self.class_emb(class_id.long()).unsqueeze(1) # [B,1, d_model]
+
+    def _get_y_cond(self, class_id):
+        if self.num_classes and class_id is not None:
+            return self.class_emb(class_id).unsqueeze(1)  # (N, 1, d_model)
         return None
 
     def forward(self, tgz, otz, binfo=None, class_id=None):
-        binfo = self.binfo_conditioner(binfo, class_id)
-        # print(otz.shape, binfo.shape, 'otz and binfo shape in llm forward') # debugging
-        y_cond = self.get_class_cond(class_id)
+        binfo = self.binfo_conditioner(binfo)
         encoder_kv = self.get_encoder_kv(otz, binfo)
+        y_cond = self._get_y_cond(class_id)
         loss, pred = self.prior(tgz, x_cond=binfo, y_cond=y_cond, encoder_kv=encoder_kv, fp16=False, loss_full=False,
                     encode=False, get_preds=True, get_acts=False, get_sep_loss=False)
-        return loss, pred, 
-    
-    def sample(self, n_samples, otz, binfo, vqvae, class_id=None, temp=1.0, top_k=0, top_p=0.0):
+
+        return loss, pred
+
+    def sample(self, n_samples, otz, binfo, vqvae, temp=1.0, top_k=0, top_p=0.0, class_id=None):
         self.eval()
         with torch.no_grad():
-            # print(f"encoder_dims: {self.prior.encoder_dims}")
-            # print(f"binfo shape before conditioning: {binfo.shape}")
-            # print(f"otz min={otz.min().item()}, max={otz.max().item()}")  # CPU-safe
-            binfo = self.binfo_conditioner(binfo, class_id)
+            binfo = self.binfo_conditioner(binfo)
             encoder_kv = self.get_encoder_kv(otz, binfo)
-            y_cond = self.get_class_cond(class_id)
+            y_cond = self._get_y_cond(class_id)
             pred = self.prior.sample(n_samples, x_cond=binfo, y_cond=y_cond,
                 encoder_kv=encoder_kv, fp16=False, temp=temp, top_k=top_k, top_p=top_p,
                 get_preds=False, sample_tokens=None, device=otz.device
             )
             pred = vqvae.decode(pred)
         return pred
-    
+
+    # primed sampling with a given initial sequence (otz) and beat info (binfo)
+    def primed_sample(
+        self,
+        n_samples,
+        otz,
+        binfo,
+        vqvae,
+        target_prefix=None,
+        temp=1.0,
+        top_k=0,
+        top_p=0.0,
+        class_id=None
+    ):
+        self.eval()
+        with torch.no_grad():
+            binfo = self.binfo_conditioner(binfo)
+            encoder_kv = self.get_encoder_kv(otz, binfo)
+            y_cond = self._get_y_cond(class_id)
+
+            # If no target prefix is supplied, do normal sampling
+            sample_tokens = None
+            if target_prefix is not None:
+                sample_tokens = target_prefix.long()
+
+            pred = self.prior.sample(
+                n_samples,
+                x_cond=binfo,
+                y_cond=y_cond,
+                encoder_kv=encoder_kv,
+                fp16=False,
+                temp=temp,
+                top_k=top_k,
+                top_p=top_p,
+                get_preds=False,
+                sample_tokens=sample_tokens,
+                device=otz.device
+            )
+
+            pred = vqvae.decode(pred)
+
+        return pred
+        
     def make_juke_prior(self, args):
         sequence_length = 4096 // np.prod(args.upsample_ratios)
         # sequence_length = 32768 // np.prod(args.upsample_ratios)
@@ -213,7 +261,9 @@ class JukeTransformer(nn.Module):
                                 checkpoint_mlp=hps.prime_c_mlp if hps.train else 0)
         
         self.hps = hps
-        self.prior = ConditionalAutoregressive2D(x_cond=args.binfo_type is not None, y_cond=True, encoder_dims = sequence_length, 
+        use_y_cond = self.num_classes is not None and self.num_classes > 0
+        # y_cond = None
+        self.prior = ConditionalAutoregressive2D(x_cond=args.binfo_type is not None, y_cond=use_y_cond, encoder_dims = sequence_length,
                                                     pos_emb=None, **prior_kwargs)
-        self.prime_prior = ConditionalAutoregressive2D(x_cond=args.binfo_type is not None, y_cond=False, only_encode=True, 
+        self.prime_prior = ConditionalAutoregressive2D(x_cond=args.binfo_type is not None, y_cond=False, only_encode=True,
                                                     mask=False, pos_emb=None, **prime_kwargs)
