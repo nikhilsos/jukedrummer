@@ -31,6 +31,18 @@ def clear_segments(segment_audio_dir):
                 removed += 1
         print(f'Cleared {removed} wav files from {split_dir}')
 
+def clear_mels(mel_dir):
+    for split in ('target', 'others'):
+        split_dir = os.path.join(mel_dir, split)
+        if not os.path.isdir(split_dir):
+            continue
+        removed = 0
+        for f in os.listdir(split_dir):
+            if f.endswith('.npy'):
+                os.remove(os.path.join(split_dir, f))
+                removed += 1
+        print(f'Cleared {removed} npy files from {split_dir}')
+
 def main(args):
     # segment -> mel extract -> div subset -> beat information extract
     audio_dir = args.audio_dir
@@ -38,8 +50,9 @@ def main(args):
     segment_audio_dir = args.segment_audio_dir
     print(args.segment_by_downbeats)
 
-    # Clear stale segments before re-segmenting
+    # Clear stale segments and mels before re-running
     clear_segments(segment_audio_dir)
+    clear_mels(mel_dir)
 
     length = 8192 * 8 * 4 * 4 # This variation is recommended to be fixed
     fns = os.listdir(os.path.join(audio_dir, 'target'))

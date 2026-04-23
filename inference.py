@@ -79,11 +79,10 @@ if __name__ == '__main__':
     )
 
     lm = JukeTransformer(hps).to(device)
-    # lm_ckpt = torch.load(os.path.join(hps.ckpt_dir, f'exp{exp_idx}_og.pkl'), map_location=lambda storage, loc: storage)
-    lm_ckpt = torch.load(('/home/nikhil/jukedrummer/ckpt/exp23_best_fad.pkl'), map_location=lambda storage, loc: storage )
-    # print("lm_ckpt['model']", '\n'.join(lm_ckpt['model'].keys()))
-    # print("lm", '\n'.join(lm.state_dict().keys()))
-    lm.load_state_dict(lm_ckpt['model'], strict=False)
+    lm_ckpt_path = os.path.join(hps.ckpt_dir, f'exp{exp_idx}_best.pkl')
+    print(f'Loading LM checkpoint: {lm_ckpt_path}')
+    lm_ckpt = torch.load(lm_ckpt_path, map_location=lambda storage, loc: storage)
+    lm.load_state_dict(lm_ckpt['model'], strict=True)
 
     
     # vocoder = HiFiVocoder(
@@ -128,46 +127,46 @@ if __name__ == '__main__':
     )
     
         # ── codebook acoustic inspection ─────────────────────────────────────────
-    import matplotlib.pyplot as plt
-    import librosa.display
+    # import matplotlib.pyplot as plt
+    # import librosa.display
 
-    codebook_dir = os.path.join(output_dir, 'codebook_sounds')
-    os.makedirs(codebook_dir, exist_ok=True)
+    # codebook_dir = os.path.join(output_dir, 'codebook_sounds')
+    # os.makedirs(codebook_dir, exist_ok=True)
 
-    top_tokens = [11, 20, 16, 8, 2]  # top 5 most frequent from utilization check
+    # top_tokens = [11, 20, 16, 8, 2]  # top 5 most frequent from utilization check
 
-    with torch.no_grad():
-        for token_id in top_tokens:
-            # decode a full sequence of the same token
-            token = torch.tensor([[token_id] * 1024]).long().to(device)
-            mel = target_vqvae.decode(token)  # [1, 80, T]
+    # with torch.no_grad():
+    #     for token_id in top_tokens:
+    #         # decode a full sequence of the same token
+    #         token = torch.tensor([[token_id] * 1024]).long().to(device)
+    #         mel = target_vqvae.decode(token)  # [1, 80, T]
             
-            # denormalize
-            mel = mel * target_std + target_mean
+    #         # denormalize
+    #         mel = mel * target_std + target_mean
             
-            # save mel as image
-            plt.figure(figsize=(10, 4))
-            librosa.display.specshow(
-                mel[0].cpu().numpy(), 
-                sr=44100, hop_length=256, 
-                x_axis='time', y_axis='mel'
-            )
-            plt.colorbar(format='%+2.0f dB')
-            plt.title(f'Token {token_id} (frequency: {[58,11,9,3,3][top_tokens.index(token_id)]}%)')
-            plt.tight_layout()
-            plt.savefig(os.path.join(codebook_dir, f'token_{token_id}_mel.png'))
-            plt.close()
+    #         # save mel as image
+    #         plt.figure(figsize=(10, 4))
+    #         librosa.display.specshow(
+    #             mel[0].cpu().numpy(), 
+    #             sr=44100, hop_length=256, 
+    #             x_axis='time', y_axis='mel'
+    #         )
+    #         plt.colorbar(format='%+2.0f dB')
+    #         plt.title(f'Token {token_id} (frequency: {[58,11,9,3,3][top_tokens.index(token_id)]}%)')
+    #         plt.tight_layout()
+    #         plt.savefig(os.path.join(codebook_dir, f'token_{token_id}_mel.png'))
+    #         plt.close()
             
-            # convert to audio via vocoder
-            wav_np = vocoder(mel)
-            # wav_np = wav.detach().cpu().numpy()
-            if wav_np.ndim == 1:
-                wav_np = wav_np[:, None]
-            sf.write(os.path.join(codebook_dir, f'token_{token_id}.wav'), wav_np, 44100)
+    #         # convert to audio via vocoder
+    #         wav_np = vocoder(mel)
+    #         # wav_np = wav.detach().cpu().numpy()
+    #         if wav_np.ndim == 1:
+    #             wav_np = wav_np[:, None]
+    #         sf.write(os.path.join(codebook_dir, f'token_{token_id}.wav'), wav_np, 44100)
             
-            print(f"token {token_id}: mel mean={mel.mean().item():.3f}, std={mel.std().item():.3f}")
+    #         print(f"token {token_id}: mel mean={mel.mean().item():.3f}, std={mel.std().item():.3f}")
 
-        print(f"Codebook sounds saved to {codebook_dir}")
+    #     print(f"Codebook sounds saved to {codebook_dir}")
 # ─────────────────────────────────────────────────────────────────────────
 
     
@@ -180,6 +179,8 @@ if __name__ == '__main__':
                 print(f'otz: {otz.shape}', 'binfo shape during inference: ', binfo.shape)
                 print(f"binfo_type: {lm.binfo_type}")
                 print(f"binfo shape: {binfo.shape}, dtype: {binfo.dtype}")
+
+                
                 
                 gen_mel = lm.primed_sample(n_samples=hps.batch_size, otz=otz, binfo=binfo, vqvae=target_vqvae, temp=args.temp, top_p=args.top_p, class_id=class_id)
 
@@ -192,12 +193,13 @@ if __name__ == '__main__':
                 if os.path.exists(target_wav_path):
                     # Raw target mel (panel 1)
                     target_raw_mel = wav2mel(target_wav_path, mel_extractor)
-                    raw_mel_np = target_raw_mel[0].cpu().numpy() if isinstance(target_raw_mel, torch.Tensor) else target_raw_mel
+                    raw_mel_np = target_raw_mel[0].cpu().numpy() if isinstance(target_raw_mel, torch.Tensor) else np.array(target_raw_mel)
 
                     # VQ-VAE roundtrip: encode → decode (panel 2)
                     real_tgz = mel2token(target_raw_mel, target_vqvae, target_mean, target_std, device)
                     real_tgz = torch.from_numpy(real_tgz).long().unsqueeze(0).to(device)
                     recon_mel = target_vqvae.decode(real_tgz) * target_std + target_mean
+                    
 
                     plot_triple_comparison(
                         [raw_mel_np],

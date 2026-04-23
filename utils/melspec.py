@@ -21,11 +21,11 @@ class Audio2Mel(nn.Module):
         super().__init__()
         window = torch.hann_window(hps.win_length)
         mel_basis = librosa_mel_fn(
-            hps.sampling_rate,
-            hps.n_fft,
-            hps.n_mel_channels,
-            hps.mel_fmin,
-            hps.mel_fmax,
+            sr=hps.sampling_rate,
+            n_fft=hps.n_fft,
+            n_mels=hps.n_mel_channels,
+            fmin=hps.mel_fmin,
+            fmax=hps.mel_fmax,
         )
 
         self.register_buffer("window", window)

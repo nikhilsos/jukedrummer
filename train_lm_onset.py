@@ -1,3 +1,14 @@
+"""
+train_lm_onset.py — Language model training with onset contour loss.
+
+Identical to train_lm.py but adds onset_contour_loss to guide the model
+toward placing drum hits at correct temporal positions.
+
+New hparams (set in hparams.py or override via CLI):
+  --lambda_onset  : weight for onset contour loss (default from hps or 0.1)
+  --onset_sigma   : Gaussian smoothing width in frames (default from hps or 3.0)
+"""
+
 import os
 import subprocess
 import numpy as np
@@ -20,6 +31,8 @@ from losses import (
     perceptual_loss_advanced,
     perceptual_loss_multiscale,
     fad_loss,
+    onset_contour_loss,
+    mel_detail_loss, 
 )
 
 
@@ -87,6 +100,14 @@ class Solver:
         self.lambda_fad = getattr(hps, "lambda_fad", 0.0)
         self.fad_diagonal = getattr(hps, "fad_diagonal", True)
 
+        # Onset contour loss params
+        self.lambda_onset = getattr(hps, "lambda_onset", 0.1)
+        self.onset_sigma = getattr(hps, "onset_sigma", 3.0)
+
+        # Mel detail loss params
+        self.lambda_mel = getattr(hps, "lambda_mel", 0.1)
+        self.mel_log_weight = getattr(hps, "mel_log_weight", 0.5)
+
         self.opt, self.shd, _ = get_optimizer(self.model, OPT)
 
     def run(self, data, training=True, make_sample=False, use_wandb=False):
@@ -104,7 +125,6 @@ class Solver:
         _, pred = self.model(tgz, otz, ot_binfo, class_id=j_info)
 
         # Focal loss replaces the standard CE returned by the model.
-        # FL = (1 - p_t)^gamma * CE  — focuses gradient on hard examples.
         bins = pred.shape[-1]
         ce_nats = torch.nn.functional.cross_entropy(
             pred.reshape(-1, bins), tgz.reshape(-1), reduction="none"
@@ -114,7 +134,7 @@ class Solver:
             loss = ((1 - pt) ** self.focal_gamma * ce_nats).mean()
         else:
             loss = ce_nats.mean()
-        loss = loss / np.log(2.0)  # convert nats → bits for consistent logging
+        loss = loss / np.log(2.0)  # convert nats -> bits
 
         if self.lambda_p > 0:
             codebook = self.vqvae.vq.k
@@ -151,6 +171,23 @@ class Solver:
                 pred, tgz, codebook, tau=self.tau, diagonal=self.fad_diagonal
             )
             loss = loss + self.lambda_fad * f_loss
+
+        # Onset contour loss — temporal alignment of drum hits
+        if self.lambda_onset > 0:
+            codebook = self.vqvae.vq.k
+            o_loss = onset_contour_loss(
+                pred, tgz, codebook, tau=self.tau, sigma=self.onset_sigma
+            )
+            loss = loss + self.lambda_onset * o_loss
+
+        # Mel detail loss — fine spectral reconstruction via frozen VQVAE decoder
+        if self.lambda_mel > 0:
+            codebook = self.vqvae.vq.k
+            m_loss = mel_detail_loss(
+                pred, tgz, codebook, self.vqvae.decoder,
+                tau=self.tau, log_weight=self.mel_log_weight,
+            )
+            loss = loss + self.lambda_mel * m_loss
 
         if training:
             loss.backward()
@@ -189,12 +226,32 @@ if __name__ == "__main__":
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--wandb", action="store_true")
     parser.add_argument("--bs", type=int)
+    parser.add_argument("--lambda_onset", type=float, help="onset contour loss weight")
+    parser.add_argument("--onset_sigma", type=float, help="Gaussian smoothing width in frames")
+    parser.add_argument("--lambda_mel", type=float, help="mel detail loss weight")
+    parser.add_argument("--mel_log_weight", type=float, help="log-mag L1 blend (0=linear, 1=log)")
     args = parser.parse_args()
 
     hps = setup_lm_hparams(MODEL_LIST[args.exp_idx])
     print(f"hps.binfo_type: {hps.binfo_type}")
     if args.bs:
         hps.batch_size = args.bs
+
+    # Defaults for onset/mel losses (hparams may not define these)
+    hps.setdefault("lambda_onset", 0.1)
+    hps.setdefault("onset_sigma", 3.0)
+    hps.setdefault("lambda_mel", 0.1)
+    hps.setdefault("mel_log_weight", 0.5)
+
+    # CLI overrides
+    if args.lambda_onset is not None:
+        hps.lambda_onset = args.lambda_onset
+    if args.onset_sigma is not None:
+        hps.onset_sigma = args.onset_sigma
+    if args.lambda_mel is not None:
+        hps.lambda_mel = args.lambda_mel
+    if args.mel_log_weight is not None:
+        hps.mel_log_weight = args.mel_log_weight
 
     device = torch.device(f"cuda:{args.cuda}")
 
@@ -230,8 +287,8 @@ if __name__ == "__main__":
         import wandb
 
         wandb.init(
-            project="JukeDrummer Language Model beat and downbeat info paired training",
-            name=f"exp{args.exp_idx}",
+            project="JukeDrummer LM onset-aligned training",
+            name=f"exp{args.exp_idx}_onset",
             config=dict(hps),
             dir="./wandb",
         )
@@ -308,7 +365,7 @@ if __name__ == "__main__":
                     "shd": solver.shd.state_dict() if solver.shd else None,
                     "hps": dict(hps),
                 },
-                os.path.join(hps.ckpt_dir, f"exp{args.exp_idx}_best.pkl"),
+                os.path.join(hps.ckpt_dir, f"exp{args.exp_idx}_best_onset.pkl"),
             )
             print(f"  -> best val loss {best_val_loss:.4f}, saved checkpoint")
             subprocess.Popen(
@@ -322,7 +379,7 @@ if __name__ == "__main__":
                     "--input_dir",
                     "/home/nikhil/jukedrummer/data_test/audio/others",
                     "--output_dir",
-                    "/home/nikhil/jukedrummer/output_n",
+                    "/home/nikhil/jukedrummer/output_onset",
                     "--sample_iters",
                     "1",
                     "--temp",
@@ -338,16 +395,6 @@ if __name__ == "__main__":
                 print("Early stopping.")
                 break
 
-        # if args.wandb:
-        #     wandb.log(
-        #         {
-        #             "loss/train": float(train_loss),
-        #             "loss/valid": float(val_loss),
-        #             "lr": solver.opt.param_groups[0]["lr"],
-        #         },
-        #         step=epoch
-        #     )
-
         if epoch % hps.sample_step == 0:
             torch.save(
                 {
@@ -356,5 +403,5 @@ if __name__ == "__main__":
                     "shd": solver.shd.state_dict() if solver.shd else None,
                     "hps": dict(hps),
                 },
-                os.path.join(hps.ckpt_dir, f"exp{args.exp_idx}_class_id.pkl"),
+                os.path.join(hps.ckpt_dir, f"exp{args.exp_idx}_onset.pkl"),
             )
