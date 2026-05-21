@@ -1,0 +1,124 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*.so
+
+# C extensions
+*.c
+*.cpp
+*.h
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDEs and editors
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+*.out
+*.err
+
+# Data and models
+data/
+output/
+ckpt/
+*.pkl
+*.pth
+
+# Audio files (except demo samples)
+*.mp3
+*.wav
+!demo_samples/*.wav
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.old
+
+# Generated files (except demo samples)
+*.png
+!demo_samples/*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+*.npy
+
+# Miscellaneous
+.DS_Store
+Thumbs.db
+
+# Git
+*.lock
+*.key
+*.pem
+*.crt
+*.pub
+
+# Hifi-GAN specific
+hifi_gan/cp_hifigan/
+hifi_gan/LJSpeech-1.1/
+
+
+/data_test
+/data
+/data_old
+/hifi_gan/cp_hifigan
+/hifi_gan/cp_hifigan_pansori
+/archive
+/ckpt_latest
