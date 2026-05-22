@@ -6,14 +6,18 @@ Given a pansori vocal recording, JukeDrummer generates culturally appropriate dr
 
 ## Architecture
 
+![JukeDrummer architecture](pansori_drummer.png)
+
+The vocal is encoded into a mel spectrogram and pooled to the token rate; together with the downbeat-phase signal it forms a per-timestep conditioning vector that the Transformer LM consumes at every position. The LM autoregressively predicts drum VQ tokens, which the VQ-VAE decoder turns into a drum mel spectrogram and the HiFi-GAN vocoder renders to audio.
+
 ```
 Pansori Vocal Audio
         |
         v
   +-----------+       +----------------+
-  | Mel Spec  |------>| Others VQ-VAE  |----> Others Tokens (condition)
-  | Extractor |       +----------------+
-  +-----------+
+  | Mel Spec  |------>|  Vocal Mel     |----> Per-frame vocal feature
+  | Extractor |       |  (pooled)      |      (added to x_cond)
+  +-----------+       +----------------+
         |
         v
   +-----------+
@@ -21,12 +25,12 @@ Pansori Vocal Audio
   | Extractor |      (sawtooth 0->1 between downbeats)
   +-----------+
 
-  Others Tokens + dphase
+  Vocal mel + dphase  (both injected into x_cond, per timestep)
         |
         v
   +---------------------+
   | Transformer LM      |----> Predicted Drum Tokens
-  | (Encoder-Decoder)   |
+  | (per-timestep cond) |
   +---------------------+
         |
         v
@@ -38,14 +42,14 @@ Pansori Vocal Audio
 ```
 
 **Key components:**
-- **VQ-VAE**: Encodes mel spectrograms into discrete tokens. Separate codebooks for drums (target) and vocals (others).
-- **Transformer Language Model**: Encoder-decoder architecture. Encoder processes accompaniment tokens; decoder autoregressively generates drum tokens.
+- **VQ-VAE**: Encodes drum mel spectrograms into discrete tokens (the LM's prediction target).
+- **Transformer Language Model**: Autoregressively generates drum tokens. The vocal is conditioned on **per-timestep** — the vocal mel and downbeat phase are both added to the model's `x_cond` at every position, so the drums actually track the vocal (this fixed an earlier version where the vocal, fed only through sparse cross-attention, was ignored).
 - **Downbeat Phase (dphase)**: Sawtooth phase signal encoding position within each rhythmic cycle, enabling the model to learn jangdan-specific patterns.
 - **HiFi-GAN Vocoder**: Converts generated mel spectrograms back to audio waveforms.
 
 ## Demo Samples
 
-Generated using the best model (exp27: CE + perceptual + onset + hit-boost losses, VQ-VAE with energy-weighted commitment, codebook size 32).
+Generated using the best model (exp30: vocal mel conditioning injected per-timestep into `x_cond`, plain cross-entropy, VQ-VAE with energy-weighted commitment, codebook size 32). This model strongly tracks the vocal — removing the vocal at inference raises cross-entropy by 6.2 bits and drops top-1 token accuracy from 47% to 1%.
 
 ### Sample 1
 ![Sample 1 Spectrogram](demo_samples/sample_1_spectrogram.png)
@@ -91,35 +95,37 @@ python token_extract.py --vq_idx 7 --data_type others --cuda 0
 ```
 
 ### 3. Language Model Training
-Train the Transformer with ablation loss configurations:
+Train the Transformer. The best config (exp30) uses per-timestep vocal-mel conditioning
+and plain cross-entropy:
 
 ```bash
-# CE + Perceptual + Onset losses
-python train_lm_ablation.py --cuda 0 --exp_idx 27 --percep --onset
-
-# CE + Perceptual + Onset + Hit-boost
-python train_lm_ablation.py --cuda 0 --exp_idx 27 --percep --onset --hit_boost
+# Best: vocal mel into x_cond, plain CE (no extra loss flags)
+python train_lm_ablation.py --cuda 0 --exp_idx 30
 ```
 
-Available loss flags: `--focal` (focal CE), `--percep` (perceptual), `--onset` (onset-weighted), `--hit_boost` (energy-aware hit boosting).
+Optional loss flags (ablations): `--focal` (focal CE), `--percep` (perceptual), `--onset` (onset-weighted), `--hit_boost` (energy-aware hit boosting). These were not needed once the vocal conditioning was fixed.
 
 ### 4. Inference
 
+The demo generator runs the current best model (exp30) end-to-end on validation
+samples, including the per-timestep vocal-mel conditioning:
+
 ```bash
-# Generate from audio files
+python generate_demo_samples.py
+```
+
+`inference.py` targets the older token-conditioned models (exp27, etc.) and does not
+yet thread the vocal-mel feature; it needs updating before use with exp30.
+
+```bash
+# Older token-conditioned models only:
 python inference.py --exp_idx 27 --cuda 0 \
     --ckpt ckpt/exp27_ce_percep_onset_hitboost_best.pkl \
     --input_dir input/others \
     --temp 0.9 --top_p 0.3 --rep_penalty 1.3
-
-# With mel gating post-processing (reduces noise between hits)
-python inference.py --exp_idx 27 --cuda 0 \
-    --ckpt ckpt/exp27_ce_percep_onset_hitboost_best.pkl \
-    --input_dir input/others \
-    --mel_gate 30
 ```
 
-## Interactive Demo
+<!-- ## Interactive Demo
 
 A Gradio-based web demo supports both uploading custom audio and browsing validation samples:
 
@@ -128,7 +134,7 @@ pip install gradio
 python demo.py
 ```
 
-This launches a local web UI at `http://localhost:7860` with controls for temperature, top-p, repetition penalty, mel gating, and mix volume.
+This launches a local web UI at `http://localhost:7860` with controls for temperature, top-p, repetition penalty, mel gating, and mix volume. -->
 
 ## Project Structure
 
@@ -162,4 +168,4 @@ jukedrummer/
 
 ## Acknowledgments
 
-Based on the [JukeDrummer](https://github.com/legoodmanner/jukedrummer) framework. Extended with dphase conditioning, focal/perceptual/FAD losses, energy-weighted VQ-VAE training, onset-weighted CE loss, mel-space gating, and interactive inference tools for Korean pansori music.
+Based on the [JukeDrummer](https://github.com/legoodmanner/jukedrummer) framework. Extended with per-timestep vocal-mel conditioning, dphase conditioning, focal/perceptual/FAD losses, energy-weighted VQ-VAE training, onset-weighted CE loss, mel-space gating, and interactive inference tools for Korean pansori music.
