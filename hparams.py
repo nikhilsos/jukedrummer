@@ -15,12 +15,24 @@ MODEL_LIST = {
     21: ("vq4", "lm1"),
     22: ("vq4", "lm9"),
     23: ("vq1", "lm11"),
+    24: ("vq1", "lm12"),
+    25: ("vq5", "lm12"),
+    26: ("vq6", "lm12"),
+    27: ("vq7", "lm13"),
+    28: ("vq8", "lm14"),
+    29: ("vq7", "lm15"),
+    30: ("vq7", "lm16"),
+    31: ("vq7", "lm17"),
+    32: ("vq8", "lm18"),
 }
 
 
 class Hyperparams(dict):
     def __getattr__(self, attr):
-        return self[attr]
+        try:
+            return self[attr]
+        except KeyError:
+            raise AttributeError(attr)
 
     def __setattr__(self, attr, value):
         self[attr] = value
@@ -138,6 +150,53 @@ vq4 = Hyperparams(
     commit_beta=0.02,
 )
 HPARAMS_REGISTRY["vq4"] = vq4
+
+vq5 = Hyperparams(
+    # Full dataset: 4x, codebook 64 (target) / 256 (others)
+    name="vq5",
+    path="data_jd/",
+    codebook_size=64,
+    upsample_ratios=[2, 2],
+    downsample_ratios=[0.5, 0.5],
+    commit_beta=0.25,
+)
+HPARAMS_REGISTRY["vq5"] = vq5
+
+vq6 = Hyperparams(
+    # Full dataset: 4x, codebook 128, latent 128, transient loss
+    name="vq6",
+    path="data_jd/",
+    codebook_size=128,
+    latent_dim=128,
+    upsample_ratios=[2, 2],
+    downsample_ratios=[0.5, 0.5],
+    commit_beta=0.25,
+)
+HPARAMS_REGISTRY["vq6"] = vq6
+
+vq7 = Hyperparams(
+    # Full dataset: 4x, codebook 32, latent 128, energy-weighted commitment
+    name="vq7",
+    path="data_jd/",
+    codebook_size=32,
+    latent_dim=128,
+    upsample_ratios=[2, 2],
+    downsample_ratios=[0.5, 0.5],
+    commit_beta=0.25,
+)
+HPARAMS_REGISTRY["vq7"] = vq7
+
+vq8 = Hyperparams(
+    # Full dataset: 4x, codebook 128, latent 128, energy-weighted commitment
+    name="vq8",
+    path="data_jd/",
+    codebook_size=128,
+    latent_dim=128,
+    upsample_ratios=[2, 2],
+    downsample_ratios=[0.5, 0.5],
+    commit_beta=0.25,
+)
+HPARAMS_REGISTRY["vq8"] = vq8
 
 lm1 = Hyperparams(
     # Raw beat activation (Low-level) w/o in-attention
@@ -297,3 +356,138 @@ lm11 = Hyperparams(
     ],  # temperatures for multiscale (only for 'multiscale')
 )
 HPARAMS_REGISTRY["lm11"] = lm11
+
+lm12 = Hyperparams(
+    # Jungmori-only, no class conditioning
+    name="lm12",
+    path="data_jungmori/",
+    enc_layers=20,
+    dec_layers=9,
+    d_model=512,
+    dropout=0.4,
+    heads=4,
+    blocks=16,
+    binfo_type="dphase",
+    lambda_p=0.2,
+    tau=0.5,
+    focal_gamma=2.0,
+    lambda_fad=0.01,
+    fad_diagonal=True,
+    perceptual_type="advanced",
+    perceptual_alpha=0.5,
+    perceptual_taus=[0.1, 0.5, 1.0],
+)
+HPARAMS_REGISTRY["lm12"] = lm12
+
+lm13 = Hyperparams(
+    # Jungmori-only, no class conditioning, vq7 (codebook=32, energy-weighted commit)
+    name="lm13",
+    path="data_jungmori/",
+    enc_layers=20,
+    dec_layers=9,
+    d_model=512,
+    dropout=0.4,
+    heads=4,
+    blocks=16,
+    binfo_type="dphase",
+    lambda_p=0.2,
+    tau=0.5,
+    focal_gamma=2.0,
+    lambda_fad=0.01,
+    fad_diagonal=True,
+    perceptual_type="advanced",
+    perceptual_alpha=0.5,
+    perceptual_taus=[0.1, 0.5, 1.0],
+    vq_ckpt_tag="target_energy",  # loads vq7_target_energy.pkl
+)
+HPARAMS_REGISTRY["lm13"] = lm13
+
+lm14 = Hyperparams(
+    # Jungmori-only, no class conditioning, vq8 (codebook=128, energy-weighted commit)
+    name="lm14",
+    path="data_jungmori/",
+    enc_layers=20,
+    dec_layers=9,
+    d_model=512,
+    dropout=0.4,
+    heads=4,
+    blocks=16,
+    binfo_type="dphase",
+    lambda_p=0.2,
+    tau=0.5,
+    focal_gamma=2.0,
+    lambda_fad=0.01,
+    fad_diagonal=True,
+    perceptual_type="advanced",
+    perceptual_alpha=0.5,
+    perceptual_taus=[0.1, 0.5, 1.0],
+    vq_ckpt_tag="target_energy",  # loads vq8_target_energy.pkl
+)
+HPARAMS_REGISTRY["lm14"] = lm14
+
+lm15 = Hyperparams(
+    # Jungmori-only, vq7. Vocal (others) tokens injected per-timestep into x_cond
+    # so the drums actually condition on the vocal; low dropout so the conditioning
+    # path can learn. Train with plain CE (no --percep/--onset/--fad/--hit_boost).
+    name="lm15",
+    path="data_jungmori/",
+    enc_layers=20,
+    dec_layers=9,
+    d_model=512,
+    dropout=0.1,
+    heads=4,
+    blocks=16,
+    binfo_type="dphase",
+    vocal_xcond=True,
+    others_codebook_size=256,  # vq7 others stem uses a 256-entry codebook
+    vq_ckpt_tag="target_energy",  # loads vq7_target_energy.pkl
+)
+HPARAMS_REGISTRY["lm15"] = lm15
+
+lm16 = Hyperparams(
+    # Like lm15 but vocal conditioning = continuous `others` mel into x_cond.
+    name="lm16",
+    path="data_jungmori/",
+    enc_layers=20,
+    dec_layers=9,
+    d_model=512,
+    dropout=0.1,
+    heads=4,
+    blocks=16,
+    binfo_type="dphase",
+    vocal_feat="mel",
+    vq_ckpt_tag="target_energy",
+)
+HPARAMS_REGISTRY["lm16"] = lm16
+
+lm17 = Hyperparams(
+    # Like lm15 but vocal conditioning = vocal energy + onset envelope into x_cond.
+    name="lm17",
+    path="data_jungmori/",
+    enc_layers=20,
+    dec_layers=9,
+    d_model=512,
+    dropout=0.1,
+    heads=4,
+    blocks=16,
+    binfo_type="dphase",
+    vocal_feat="envelope",
+    vq_ckpt_tag="target_energy",
+)
+HPARAMS_REGISTRY["lm17"] = lm17
+
+lm18 = Hyperparams(
+    # vq8 (codebook=128) + winning vocal feature (mel) into x_cond.
+    name="lm18",
+    path="data_jungmori/",
+    enc_layers=20,
+    dec_layers=9,
+    d_model=512,
+    dropout=0.1,
+    heads=4,
+    blocks=16,
+    binfo_type="dphase",
+    vocal_feat="mel",
+    vq_ckpt_tag="target_energy",  # loads vq8_target_energy.pkl
+)
+HPARAMS_REGISTRY["lm18"] = lm18

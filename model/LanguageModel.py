@@ -70,6 +70,23 @@ class JukeTransformer(nn.Module):
         self.prime_state_ln = LayerNorm(args.d_model)
         self.binfo_type = args.binfo_type
 
+        # Vocal conditioning: embed the `others` (vocal) VQ tokens and add them to
+        # x_cond at every timestep, so the drums condition on the vocal through the
+        # same per-position pathway that makes beat-phase effective.
+        self.vocal_xcond = getattr(args, 'vocal_xcond', False)
+        if self.vocal_xcond:
+            # `others` (vocal) stem uses its own, larger codebook than the drums,
+            # so size this table to the others codebook, not the target one.
+            others_bins = getattr(args, 'others_codebook_size', args.codebook_size)
+            self.vocal_emb = nn.Embedding(others_bins, args.d_model)
+
+        # Continuous per-frame vocal feature into x_cond: None | 'mel' (80) | 'envelope' (2).
+        self.vocal_feat = getattr(args, 'vocal_feat', None)
+        if self.vocal_feat == 'mel':
+            self.vocal_feat_proj = nn.Linear(80, args.d_model)
+        elif self.vocal_feat == 'envelope':
+            self.vocal_feat_proj = nn.Linear(2, args.d_model)
+
         if self.num_classes:
             self.class_emb = nn.Embedding(self.num_classes, args.d_model)
 
@@ -146,27 +163,54 @@ class JukeTransformer(nn.Module):
 
         return binfo
 
-    def _get_y_cond(self, class_id):
-        if self.num_classes and class_id is not None:
-            return self.class_emb(class_id).unsqueeze(1)  # (N, 1, d_model)
-        return None
+    def _add_class_to_binfo(self, binfo, class_id):
+        """Broadcast class embedding across time and add to binfo (x_cond).
 
-    def forward(self, tgz, otz, binfo=None, class_id=None):
+        Previously class was passed as y_cond (start token only, seen at t=0).
+        Now it's added to x_cond at every timestep so the model always knows
+        the jangdan class throughout the sequence.
+        """
+        if self.num_classes and class_id is not None:
+            class_emb = self.class_emb(class_id)  # (N, d_model)
+            class_emb = class_emb.unsqueeze(1)     # (N, 1, d_model)
+            if binfo is not None:
+                binfo = binfo + class_emb  # broadcasts over T
+            else:
+                # No beat info — class alone becomes x_cond, broadcast to seq len
+                binfo = class_emb.expand(-1, self.prior.input_dims, -1)
+        return binfo
+
+    def _add_vocal_to_xcond(self, binfo, otz, vocal_feat=None):
+        """Add the per-timestep vocal signal to x_cond (binfo).
+
+        Continuous feature (mel/envelope) takes precedence over token embedding.
+        """
+        if self.vocal_feat is not None and vocal_feat is not None:
+            voc = self.vocal_feat_proj(vocal_feat.float())  # (N, T, d_model)
+        elif self.vocal_xcond:
+            voc = self.vocal_emb(otz.long())  # (N, T, d_model)
+        else:
+            return binfo
+        return voc if binfo is None else binfo + voc
+
+    def forward(self, tgz, otz, binfo=None, class_id=None, vocal_feat=None):
         binfo = self.binfo_conditioner(binfo)
+        binfo = self._add_class_to_binfo(binfo, class_id)
         encoder_kv = self.get_encoder_kv(otz, binfo)
-        y_cond = self._get_y_cond(class_id)
-        loss, pred = self.prior(tgz, x_cond=binfo, y_cond=y_cond, encoder_kv=encoder_kv, fp16=False, loss_full=False,
+        binfo = self._add_vocal_to_xcond(binfo, otz, vocal_feat)
+        loss, pred = self.prior(tgz, x_cond=binfo, y_cond=None, encoder_kv=encoder_kv, fp16=False, loss_full=False,
                     encode=False, get_preds=True, get_acts=False, get_sep_loss=False)
 
         return loss, pred
 
-    def sample(self, n_samples, otz, binfo, vqvae, temp=1.0, top_k=0, top_p=0.0, class_id=None):
+    def sample(self, n_samples, otz, binfo, vqvae, temp=1.0, top_k=0, top_p=0.0, class_id=None, vocal_feat=None):
         self.eval()
         with torch.no_grad():
             binfo = self.binfo_conditioner(binfo)
+            binfo = self._add_class_to_binfo(binfo, class_id)
             encoder_kv = self.get_encoder_kv(otz, binfo)
-            y_cond = self._get_y_cond(class_id)
-            pred = self.prior.sample(n_samples, x_cond=binfo, y_cond=y_cond,
+            binfo = self._add_vocal_to_xcond(binfo, otz, vocal_feat)
+            pred = self.prior.sample(n_samples, x_cond=binfo, y_cond=None,
                 encoder_kv=encoder_kv, fp16=False, temp=temp, top_k=top_k, top_p=top_p,
                 get_preds=False, sample_tokens=None, device=otz.device
             )
@@ -184,23 +228,30 @@ class JukeTransformer(nn.Module):
         temp=1.0,
         top_k=0,
         top_p=0.0,
-        class_id=None
+        class_id=None,
+        rep_penalty=1.0,
+        rep_window=16,
+        greedy=False,
+        energy_gate=0.0,
+        vocal_feat=None,
     ):
         self.eval()
         with torch.no_grad():
             binfo = self.binfo_conditioner(binfo)
+            binfo = self._add_class_to_binfo(binfo, class_id)
             encoder_kv = self.get_encoder_kv(otz, binfo)
-            y_cond = self._get_y_cond(class_id)
+            binfo = self._add_vocal_to_xcond(binfo, otz, vocal_feat)
 
             # If no target prefix is supplied, do normal sampling
             sample_tokens = None
             if target_prefix is not None:
                 sample_tokens = target_prefix.long()
 
+            codebook = vqvae.vq.k if energy_gate > 0.0 else None
             pred = self.prior.sample(
                 n_samples,
                 x_cond=binfo,
-                y_cond=y_cond,
+                y_cond=None,
                 encoder_kv=encoder_kv,
                 fp16=False,
                 temp=temp,
@@ -208,7 +259,12 @@ class JukeTransformer(nn.Module):
                 top_p=top_p,
                 get_preds=False,
                 sample_tokens=sample_tokens,
-                device=otz.device
+                device=otz.device,
+                rep_penalty=rep_penalty,
+                rep_window=rep_window,
+                greedy=greedy,
+                energy_gate=energy_gate,
+                codebook=codebook,
             )
 
             pred = vqvae.decode(pred)
@@ -224,8 +280,8 @@ class JukeTransformer(nn.Module):
         hps['n_ctx'] = sequence_length
         hps['blocks'] = args.blocks
         hps['prior_width'] = args.d_model
-        hps['attn_dropout'] = 0.3
-        hps['resid_dropout']= 0.3 
+        hps['attn_dropout'] = args.dropout
+        hps['resid_dropout']= args.dropout
         hps['emb_dropout'] = args.dropout
         hps['m_mlp'] = 1
         hps['heads'] = args.heads
@@ -261,9 +317,10 @@ class JukeTransformer(nn.Module):
                                 checkpoint_mlp=hps.prime_c_mlp if hps.train else 0)
         
         self.hps = hps
-        use_y_cond = self.num_classes is not None and self.num_classes > 0
-        # y_cond = None
-        self.prior = ConditionalAutoregressive2D(x_cond=args.binfo_type is not None, y_cond=use_y_cond, encoder_dims = sequence_length,
+        # Class conditioning now goes through x_cond (every timestep) instead of
+        # y_cond (start token only). x_cond is enabled when we have binfo OR classes.
+        use_x_cond = args.binfo_type is not None or (self.num_classes is not None and self.num_classes > 0) or getattr(args, 'vocal_xcond', False) or getattr(args, 'vocal_feat', None) is not None
+        self.prior = ConditionalAutoregressive2D(x_cond=use_x_cond, y_cond=False, encoder_dims = sequence_length,
                                                     pos_emb=None, **prior_kwargs)
-        self.prime_prior = ConditionalAutoregressive2D(x_cond=args.binfo_type is not None, y_cond=False, only_encode=True,
+        self.prime_prior = ConditionalAutoregressive2D(x_cond=use_x_cond, y_cond=False, only_encode=True,
                                                     mask=False, pos_emb=None, **prime_kwargs)

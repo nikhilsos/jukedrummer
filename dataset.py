@@ -84,6 +84,22 @@ class BeatInfoPairedDataset(Dataset):
         self.return_fn = return_fn
         self.return_class = return_class          # ← new flag (default True)
         self.max_len = 4096 // int(np.prod(hps.upsample_ratios))
+        # Continuous vocal feature for x_cond conditioning: None | 'mel' | 'envelope'.
+        # Loads the `others` (vocal) mel and pools it down to the token rate.
+        self.vocal_feat = hps.get('vocal_feat', None)
+        self.mel_pool = 4096 // self.max_len  # mel frames per token
+
+    def _load_vocal_feat(self, fname):
+        mel = np.load(os.path.join(self.root, 'mel', 'others', fname))  # (80, 4096)
+        F, Tm = mel.shape
+        T = Tm // self.mel_pool
+        mel = mel[:, :T * self.mel_pool].reshape(F, T, self.mel_pool).mean(-1)  # (80, T)
+        if self.vocal_feat == 'mel':
+            return mel.T.astype(np.float32)  # (T, 80)
+        # 'envelope': per-frame energy + positive onset flux
+        energy = mel.mean(axis=0)  # (T,)
+        onset = np.clip(np.diff(energy, prepend=energy[:1]), 0, None)  # (T,)
+        return np.stack([energy, onset], axis=-1).astype(np.float32)  # (T, 2)
 
     def get_class_from_filename(self, fname):
         """
@@ -127,6 +143,9 @@ class BeatInfoPairedDataset(Dataset):
         if self.return_class:
             class_id = self.get_class_from_filename(raw)   # or fname
             out.append(class_id)
+
+        if self.vocal_feat is not None:
+            out.append(self._load_vocal_feat(fname))
 
         return tuple(out)
 
@@ -190,17 +209,20 @@ class ConditionalInformationDataset(Dataset):
 #         return item
 
 class MelDataset(Dataset):
-    def __init__(self, fl, hps, data_type):
+    def __init__(self, fl, hps, data_type, augmentor=None):
         super().__init__()
         self.fl = fl
         self.root = hps.path
         self.data_type = data_type
+        self.augmentor = augmentor
 
     def __getitem__(self, idx):
         fname = self.fl[idx]
         if not fname.endswith('.npy'):
             fname = fname + '.npy'
         item = np.load(os.path.join(self.root, 'mel', self.data_type, fname))
+        if self.augmentor is not None:
+            item = self.augmentor(item)
         return item
 
     def __len__(self):
@@ -209,21 +231,35 @@ class MelDataset(Dataset):
 from utils.functions import mel2token, wav2mel
 
 class End2EndWrapper(Dataset):
-    
-    def __init__(self, input_dir, vqvae, beat_extractor, mel_extractor, others_mean, others_std, device):
+
+    def __init__(self, input_dir, vqvae, beat_extractor, mel_extractor,
+                 others_mean, others_std, device,
+                 token_dir=None, dphase_dir=None, binfo_type=None):
+        """
+        Args:
+            input_dir:   directory with .wav files (used for filenames, and
+                         on-the-fly extraction if token_dir/dphase_dir not set)
+            token_dir:   if set, load pre-extracted others tokens from here
+            dphase_dir:  if set, load pre-extracted dphase from here
+            binfo_type:  beat info type (needed to decide dphase loading)
+        """
         super().__init__()
         self.mel_extractor = mel_extractor
         self.beat_extractor = beat_extractor
         self.others_mean, self.others_std = others_mean, others_std
         self.vqvae = vqvae
         self.device = device
+        self.token_dir = token_dir
+        self.dphase_dir = dphase_dir
+        self.binfo_type = binfo_type
         fns = os.listdir(input_dir)
         self.dpaths = [os.path.join(input_dir,f) for f in fns if f.endswith('.wav')]
-    
+
     def __getitem__(self, index):
         fn = self.dpaths[index].split('/')[-1]
         base = fn.lower()
-        
+        npy_fn = fn.replace('.wav', '.npy')
+
         if base.startswith('jy'):
             class_id = 0
         elif base.startswith('za'):
@@ -232,21 +268,45 @@ class End2EndWrapper(Dataset):
             class_id = 2
         else:
             class_id = 3
-        
+
         class_id = torch.tensor([class_id], dtype=torch.long).to(self.device)
 
-        beat_info = self.beat_extractor(self.dpaths[index])
-        beat_info = np.asarray(beat_info, dtype=np.float32)
-        if not np.isnan(beat_info).any():
-            beat_info = torch.from_numpy(beat_info).unsqueeze(0).to(self.device)
+        # Load binfo: prefer pre-extracted dphase file
+        if self.dphase_dir and self.binfo_type == 'dphase':
+            dphase_path = os.path.join(self.dphase_dir, npy_fn)
+            if os.path.exists(dphase_path):
+                beat_info = np.load(dphase_path).astype(np.float32)
+                beat_info = torch.from_numpy(beat_info).unsqueeze(0).to(self.device)
+            else:
+                # Fallback to on-the-fly extraction
+                beat_info = self.beat_extractor(self.dpaths[index])
+                beat_info = np.asarray(beat_info, dtype=np.float32)
+                beat_info = torch.from_numpy(beat_info).unsqueeze(0).to(self.device)
         else:
-            beat_info = None
+            beat_info = self.beat_extractor(self.dpaths[index])
+            beat_info = np.asarray(beat_info, dtype=np.float32)
+            if not np.isnan(beat_info).any():
+                beat_info = torch.from_numpy(beat_info).unsqueeze(0).to(self.device)
+            else:
+                beat_info = None
 
-        mel = wav2mel(self.dpaths[index], self.mel_extractor)
-        t = mel2token(mel, self.vqvae, self.others_mean, self.others_std, self.device)
-        t = torch.from_numpy(t).long().unsqueeze(0).to(self.device)
-        
-        return t, beat_info, fn, class_id  # ← added class_id
+        # Load others tokens: prefer pre-extracted token file
+        if self.token_dir:
+            token_path = os.path.join(self.token_dir, npy_fn)
+            if os.path.exists(token_path):
+                t = np.load(token_path)
+                t = torch.from_numpy(t).long().unsqueeze(0).to(self.device)
+            else:
+                # Fallback to on-the-fly extraction
+                mel = wav2mel(self.dpaths[index], self.mel_extractor)
+                t = mel2token(mel, self.vqvae, self.others_mean, self.others_std, self.device)
+                t = torch.from_numpy(t).long().unsqueeze(0).to(self.device)
+        else:
+            mel = wav2mel(self.dpaths[index], self.mel_extractor)
+            t = mel2token(mel, self.vqvae, self.others_mean, self.others_std, self.device)
+            t = torch.from_numpy(t).long().unsqueeze(0).to(self.device)
+
+        return t, beat_info, fn, class_id
 
     def __len__(self,):
         return len(self.dpaths)

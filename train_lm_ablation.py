@@ -12,14 +12,13 @@ Examples:
   python train_lm_ablation.py --cuda 0 --exp_idx 23 --wandb --focal --percep
 
   # All losses
-  python train_lm_ablation.py --cuda 0 --exp_idx 23 --wandb --focal --percep --fad --onset --mel
+  python train_lm_ablation.py --cuda 0 --exp_idx 23 --wandb --focal --percep --fad --onset
 
   # Custom weights
   python train_lm_ablation.py --cuda 0 --exp_idx 23 --wandb --focal --onset --lambda_onset 0.2
 """
 
 import os
-import subprocess
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
@@ -39,8 +38,37 @@ from losses import (
     perceptual_loss_multiscale,
     fad_loss,
     onset_contour_loss,
-    mel_detail_loss,
+    onset_weighted_ce,
 )
+
+
+def compute_token_weights(hps, alpha=0.5):
+    """Compute inverse-frequency CE weights from training token distribution.
+
+    weight[i] = (1 / freq[i])^alpha, normalized so mean weight = 1.
+    alpha=0.5 is moderate rebalancing; alpha=1.0 is full inverse frequency.
+    """
+    token_dir = os.path.join(hps.path, "token", "target", hps.vq_name)
+    counts = np.zeros(hps.codebook_size, dtype=np.float64)
+    for fn in os.listdir(token_dir):
+        if not fn.endswith(".npy"):
+            continue
+        tokens = np.load(os.path.join(token_dir, fn)).flatten()
+        for t in tokens:
+            counts[t] += 1
+
+    # Avoid division by zero for unused tokens
+    counts = np.maximum(counts, 1.0)
+    freq = counts / counts.sum()
+    weights = (1.0 / freq) ** alpha
+    weights = weights / weights.mean()  # normalize so mean weight = 1
+
+    print(f"Token weight range: [{weights.min():.3f}, {weights.max():.3f}] (alpha={alpha})")
+    top5 = np.argsort(-counts)[:5]
+    for i in top5:
+        print(f"  token {i:3d}: freq={100*freq[i]:.1f}%, weight={weights[i]:.3f}")
+
+    return torch.FloatTensor(weights)
 
 
 def get_dataset(hps):
@@ -93,23 +121,26 @@ def build_loss_tag(args):
     parts = ["ce"]  # CE is always on
     if args.focal:
         parts[0] = "focal"
+    if args.balanced:
+        parts.append("bal")
     if args.percep:
         parts.append("percep")
     if args.fad:
         parts.append("fad")
     if args.onset:
         parts.append("onset")
-    if args.mel:
-        parts.append("mel")
+    if args.hit_boost:
+        parts.append("hitboost")
     return "_".join(parts)
 
 
 class Solver:
-    def __init__(self, model, vqvae, device, hps, loss_flags):
+    def __init__(self, model, vqvae, device, hps, loss_flags, token_weights=None):
         self.device = device
         self.model = model
         self.vqvae = vqvae
         self.loss_flags = loss_flags
+        self.token_weights = token_weights  # (codebook_size,) or None
 
         self.tau = hps.get("tau", 0.5)
 
@@ -126,13 +157,14 @@ class Solver:
         self.lambda_fad = hps.get("lambda_fad", 0.01) if loss_flags["fad"] else 0.0
         self.fad_diagonal = hps.get("fad_diagonal", True)
 
-        # Onset
+        # Onset contour
         self.lambda_onset = hps.get("lambda_onset", 0.1) if loss_flags["onset"] else 0.0
         self.onset_sigma = hps.get("onset_sigma", 3.0)
 
-        # Mel detail
-        self.lambda_mel = hps.get("lambda_mel", 0.1) if loss_flags["mel"] else 0.0
-        self.mel_log_weight = hps.get("mel_log_weight", 0.5)
+        # Onset-weighted CE (replaces standard CE when active)
+        self.hit_boost = hps.get("hit_boost", 3.0) if loss_flags.get("hit_boost") else 0.0
+        self.hit_sigma = hps.get("hit_sigma", 2.0)
+
 
         self.opt, self.shd, _ = get_optimizer(self.model, OPT)
 
@@ -142,14 +174,16 @@ class Solver:
             parts.append(f"focal(g={self.focal_gamma})")
         else:
             parts.append("ce")
+        if self.token_weights is not None:
+            parts.append("balanced")
         if self.lambda_p > 0:
             parts.append(f"percep({self.perceptual_type},w={self.lambda_p})")
         if self.lambda_fad > 0:
             parts.append(f"fad(w={self.lambda_fad})")
         if self.lambda_onset > 0:
             parts.append(f"onset(w={self.lambda_onset},s={self.onset_sigma})")
-        if self.lambda_mel > 0:
-            parts.append(f"mel(w={self.lambda_mel})")
+        if self.hit_boost > 0:
+            parts.append(f"hit_boost({self.hit_boost}x)")
         return " + ".join(parts)
 
     def run(self, data, training=True, make_sample=False, use_wandb=False):
@@ -163,26 +197,36 @@ class Solver:
         otz = data[1].long().to(self.device)
         ot_binfo = data[2].float().to(self.device)
         j_info = data[3].long().to(self.device)
+        vocal_feat = data[4].float().to(self.device) if len(data) > 4 else None
 
-        _, pred = self.model(tgz, otz, ot_binfo, class_id=j_info)
+        _, pred = self.model(tgz, otz, ot_binfo, class_id=j_info, vocal_feat=vocal_feat)
 
-        # --- CE / Focal ---
+        # --- CE / Focal / Onset-weighted CE ---
+        codebook = self.vqvae.vq.k
         bins = pred.shape[-1]
-        ce_nats = F.cross_entropy(
-            pred.reshape(-1, bins), tgz.reshape(-1), reduction="none"
-        )
-        if self.focal_gamma > 0:
-            pt = torch.exp(-ce_nats)
-            loss = ((1 - pt) ** self.focal_gamma * ce_nats).mean()
+
+        if self.hit_boost > 0:
+            # Onset-weighted CE: normal weight on silence, boosted on drum hits
+            loss = onset_weighted_ce(
+                pred, tgz, codebook,
+                hit_boost=self.hit_boost, sigma=self.hit_sigma,
+            )
         else:
-            loss = ce_nats.mean()
-        loss = loss / np.log(2.0)
+            ce_nats = F.cross_entropy(
+                pred.reshape(-1, bins), tgz.reshape(-1),
+                weight=self.token_weights, reduction="none"
+            )
+            if self.focal_gamma > 0:
+                pt = torch.exp(-ce_nats)
+                loss = ((1 - pt) ** self.focal_gamma * ce_nats).mean()
+            else:
+                loss = ce_nats.mean()
+            loss = loss / np.log(2.0)
 
         logs = {"ce_loss": loss.item()}
 
         # --- Perceptual ---
         if self.lambda_p > 0:
-            codebook = self.vqvae.vq.k
             if self.perceptual_type == "advanced":
                 p_loss = perceptual_loss_advanced(
                     pred, tgz, codebook,
@@ -202,7 +246,6 @@ class Solver:
 
         # --- FAD ---
         if self.lambda_fad > 0:
-            codebook = self.vqvae.vq.k
             f_loss = fad_loss(
                 pred, tgz, codebook, tau=self.tau, diagonal=self.fad_diagonal,
             )
@@ -211,22 +254,11 @@ class Solver:
 
         # --- Onset contour ---
         if self.lambda_onset > 0:
-            codebook = self.vqvae.vq.k
             o_loss = onset_contour_loss(
                 pred, tgz, codebook, tau=self.tau, sigma=self.onset_sigma,
             )
             loss = loss + self.lambda_onset * o_loss
             logs["onset_loss"] = o_loss.item()
-
-        # --- Mel detail ---
-        if self.lambda_mel > 0:
-            codebook = self.vqvae.vq.k
-            m_loss = mel_detail_loss(
-                pred, tgz, codebook, self.vqvae.decoder,
-                tau=self.tau, log_weight=self.mel_log_weight,
-            )
-            loss = loss + self.lambda_mel * m_loss
-            logs["mel_loss"] = m_loss.item()
 
         if training:
             loss.backward()
@@ -269,7 +301,10 @@ if __name__ == "__main__":
     loss_group.add_argument("--percep", action="store_true", help="enable perceptual loss")
     loss_group.add_argument("--fad", action="store_true", help="enable FAD loss")
     loss_group.add_argument("--onset", action="store_true", help="enable onset contour loss")
-    loss_group.add_argument("--mel", action="store_true", help="enable mel detail loss")
+    loss_group.add_argument("--hit_boost", action="store_true", help="onset-weighted CE: boost drum hit timesteps (replaces focal/balanced)")
+    loss_group.add_argument("--balanced", action="store_true", help="class-balanced CE (inverse-frequency token weighting)")
+    loss_group.add_argument("--balance_alpha", type=float, default=0.5,
+                            help="rebalancing strength: 0=uniform, 0.5=moderate, 1.0=full inverse (default: 0.5)")
 
     # Weight overrides
     weight_group = parser.add_argument_group("loss weight overrides")
@@ -277,9 +312,9 @@ if __name__ == "__main__":
     weight_group.add_argument("--lambda_p", type=float)
     weight_group.add_argument("--lambda_fad", type=float)
     weight_group.add_argument("--lambda_onset", type=float)
-    weight_group.add_argument("--lambda_mel", type=float)
     weight_group.add_argument("--onset_sigma", type=float)
-    weight_group.add_argument("--mel_log_weight", type=float)
+    weight_group.add_argument("--hit_boost_val", type=float, help="hit boost multiplier (default 3.0)")
+    weight_group.add_argument("--hit_sigma", type=float, help="smoothing sigma for hit detection (default 2.0)")
     weight_group.add_argument("--tau", type=float)
 
     args = parser.parse_args()
@@ -290,8 +325,14 @@ if __name__ == "__main__":
         hps.batch_size = args.bs
 
     # Apply weight overrides to hps
+    # Map CLI names to hps keys
+    if args.hit_boost_val is not None:
+        hps["hit_boost"] = args.hit_boost_val
+    if args.hit_sigma is not None:
+        hps["hit_sigma"] = args.hit_sigma
+
     for key in ["focal_gamma", "lambda_p", "lambda_fad", "lambda_onset",
-                "lambda_mel", "onset_sigma", "mel_log_weight", "tau"]:
+                "onset_sigma", "tau"]:
         val = getattr(args, key, None)
         if val is not None:
             hps[key] = val
@@ -302,13 +343,13 @@ if __name__ == "__main__":
     hps.setdefault("lambda_p", 0.2)
     hps.setdefault("lambda_fad", 0.01)
     hps.setdefault("lambda_onset", 0.1)
-    hps.setdefault("lambda_mel", 0.1)
     hps.setdefault("onset_sigma", 3.0)
-    hps.setdefault("mel_log_weight", 0.5)
     hps.setdefault("fad_diagonal", True)
     hps.setdefault("perceptual_type", "advanced")
     hps.setdefault("perceptual_alpha", 0.5)
     hps.setdefault("perceptual_taus", [0.1, 0.5, 1.0])
+    hps.setdefault("hit_boost", 3.0)
+    hps.setdefault("hit_sigma", 2.0)
 
     # --- Loss flags ---
     loss_flags = {
@@ -316,8 +357,15 @@ if __name__ == "__main__":
         "percep": args.percep,
         "fad": args.fad,
         "onset": args.onset,
-        "mel": args.mel,
+        "balanced": args.balanced,
+        "hit_boost": args.hit_boost,
     }
+
+    # Compute class-balanced CE weights
+    device = torch.device(f"cuda:{args.cuda}")
+    token_weights = None
+    if args.balanced:
+        token_weights = compute_token_weights(hps, alpha=args.balance_alpha).to(device)
 
     loss_tag = build_loss_tag(args)
     ckpt_prefix = f"exp{args.exp_idx}_{loss_tag}"
@@ -332,16 +380,18 @@ if __name__ == "__main__":
 
     model = JukeTransformer(hps).to(device)
 
+    latent_dim = hps.get('latent_dim', 64)
     vqvae = VQVAE(
         codebook_size=hps.codebook_size,
-        encoder=Sampler(80, 64, hps.downsample_ratios),
-        decoder=Sampler(64, 80, hps.upsample_ratios),
+        encoder=Sampler(80, latent_dim, hps.downsample_ratios),
+        decoder=Sampler(latent_dim, 80, hps.upsample_ratios),
+        latent_dim=latent_dim,
     ).to(device)
     vqvae.restore_from_ckpt(hps, device)
     vqvae.eval()
     vqvae.requires_grad_(False)
 
-    solver = Solver(model, vqvae, device, hps, loss_flags)
+    solver = Solver(model, vqvae, device, hps, loss_flags, token_weights=token_weights)
     print(f"Active losses: {solver.active_losses_str()}")
 
     if args.resume:
@@ -423,18 +473,6 @@ if __name__ == "__main__":
                 os.path.join(hps.ckpt_dir, f"{ckpt_prefix}_best.pkl"),
             )
             print(f"  -> best val loss {best_val_loss:.4f}, saved {ckpt_prefix}_best.pkl")
-            subprocess.Popen(
-                [
-                    "python", "inference.py",
-                    "--exp_idx", str(args.exp_idx),
-                    "--cuda", str(args.cuda),
-                    "--input_dir", "/home/nikhil/jukedrummer/data_test/audio/others",
-                    "--output_dir", output_dir,
-                    "--sample_iters", "1",
-                    "--temp", "0.9",
-                    "--top_p", "0.9",
-                ]
-            )
         else:
             patience_counter += 1
             print(f"  -> no improvement ({patience_counter}/{PATIENCE})")

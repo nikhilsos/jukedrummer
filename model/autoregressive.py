@@ -239,7 +239,15 @@ class ConditionalAutoregressive2D(nn.Module):
         return x, cond
 
     def sample(self, n_samples, x_cond=None, y_cond=None, encoder_kv=None, fp16=False, temp=1.0, top_k=0, top_p=0.0,
-               get_preds=False, sample_tokens=None, device=torch.device('cuda')):
+               get_preds=False, sample_tokens=None, device=torch.device('cuda'),
+               rep_penalty=1.0, rep_window=16, greedy=False,
+               energy_gate=0.0, codebook=None):
+        """
+        Args:
+            rep_penalty: multiplicative penalty for recently repeated tokens (>1.0 penalizes).
+                         Applied to logits of tokens seen in the last rep_window steps.
+            rep_window:  how many past steps to look back for repetition penalty.
+        """
         assert self.training == False
 
         if sample_tokens is None: sample_tokens=self.input_dims
@@ -258,7 +266,7 @@ class ConditionalAutoregressive2D(nn.Module):
         else:
             assert x_cond is None
             x_cond = torch.zeros((N, 1, self.width), dtype=torch.float).to(device)
-        
+
         with torch.no_grad():
             xs, x = [], None
             if get_preds:
@@ -275,9 +283,37 @@ class ConditionalAutoregressive2D(nn.Module):
                     preds.append(x.clone())
                 # Adjust logits
                 x = x / temp
-                x = filter_logits(x, top_k=top_k, top_p=top_p)
-                x = torch.distributions.Categorical(logits=x).sample() # Sample and replace x
+                # Repetition penalty: reduce logits of tokens seen in recent window
+                if rep_penalty > 1.0 and len(xs) > 0:
+                    window = xs[-rep_window:]
+                    past_tokens = torch.cat(window, dim=1)  # (N, window_len)
+                    for b in range(N):
+                        seen = past_tokens[b].unique()
+                        for tok in seen:
+                            count = (past_tokens[b] == tok).sum().item()
+                            # Scale penalty by how many times token appeared in window
+                            penalty = rep_penalty ** count
+                            if x[b, 0, tok] > 0:
+                                x[b, 0, tok] = x[b, 0, tok] / penalty
+                            else:
+                                x[b, 0, tok] = x[b, 0, tok] * penalty
+                if greedy:
+                    x = x.argmax(dim=-1)  # (N, 1)
+                else:
+                    if top_k > 0:
+                        x = filter_logits(x, top_k=top_k, top_p=0.0)
+                    if top_p > 0.0:
+                        x = filter_logits(x, top_k=0, top_p=top_p)
+                    x = torch.distributions.Categorical(logits=x).sample()
                 assert x.shape == (n_samples, 1)
+                # Energy gate: snap low-energy tokens to the quietest token
+                if energy_gate > 0.0 and codebook is not None:
+                    energies = codebook.norm(dim=-1)  # (C,)
+                    silence_tok = energies.argmin()
+                    thresh = energies.min() + energy_gate * (energies.max() - energies.min())
+                    for b in range(n_samples):
+                        if energies[x[b, 0]] < thresh:
+                            x[b, 0] = silence_tok
                 xs.append(x.clone())
 
             del x
