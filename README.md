@@ -6,6 +6,10 @@ Given a pansori vocal recording, JukeDrummer generates culturally appropriate dr
 
 ## Architecture
 
+![JukeDrummer architecture](pansori_drummer.png)
+
+The vocal is encoded into a mel spectrogram and pooled to the token rate; together with the downbeat-phase signal it forms a per-timestep conditioning vector that the Transformer LM consumes at every position. The LM autoregressively predicts drum VQ tokens, which the VQ-VAE decoder turns into a drum mel spectrogram and the HiFi-GAN vocoder renders to audio.
+
 ```
 Pansori Vocal Audio
         |
